@@ -1,0 +1,2 @@
+# Sopira.magic apps package
+
