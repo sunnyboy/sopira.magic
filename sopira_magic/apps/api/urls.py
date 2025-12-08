@@ -7,91 +7,6 @@
 """
 API URLs - Config-Driven API Gateway URL Routing.
 
-URL configuration pre API Gateway (prefixed /api/ v hlavnom urls.py).
-CRUD endpointy sú generované z VIEWS_MATRIX, custom endpointy z CUSTOM_ENDPOINTS.
-"""
-
-import logging
-from typing import Dict, List
-from importlib import import_module
-
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-
-from . import views
-from .view_factory import create_viewset
-from .view_configs import VIEWS_MATRIX, CUSTOM_ENDPOINTS
-
-logger = logging.getLogger(__name__)
-
-
-def _generate_custom_urls(endpoints_config: Dict) -> List:
-    """Generate custom endpoint URLs from configuration."""
-    urlpatterns: List = []
-    for endpoint_name, config in endpoints_config.items():
-        try:
-            view_function_path = config["view_function"]
-            module_path, function_name = view_function_path.rsplit(".", 1)
-            module = import_module(module_path)
-            view_function = getattr(module, function_name)
-
-            url_path = config["path"]
-            url_name = config.get("name", endpoint_name)
-
-            urlpatterns.append(path(url_path, view_function, name=url_name))
-            logger.debug(f"Registered custom endpoint: {url_path} -> {view_function_path}")
-        except (ImportError, AttributeError) as e:
-            logger.error(f"Failed to import view for endpoint '{endpoint_name}': {e}")
-            continue
-    return urlpatterns
-
-
-# Router pre CRUD viewsety
-router = DefaultRouter()
-
-# Špeciálne viewsety (mimo VIEWS_MATRIX)
-router.register(r"keys", views.APIKeyViewSet, basename="apikey")
-router.register(r"versions", views.APIVersionViewSet, basename="apiversion")
-
-# Auto-generate CRUD viewsety z VIEWS_MATRIX
-for view_name, config in VIEWS_MATRIX.items():
-    serializer_write = config.get("serializer_write")
-    serializer_read = config.get("serializer_read")
-
-    if serializer_read is None and serializer_write is None:
-        read_only = False  # Full CRUD with MySerializer
-    elif serializer_write is not None:
-        read_only = False
-    else:
-        read_only = True
-
-    ViewSet = create_viewset(view_name, read_only=read_only)
-    router.register(view_name, ViewSet, basename=view_name)
-    logger.debug(f"Registered ViewSet for '{view_name}' (read_only={read_only})")
-
-
-app_name = "api"
-
-urlpatterns = [
-    *_generate_custom_urls(CUSTOM_ENDPOINTS),
-    path("accessrights/matrix/", views.accessrights_matrix_view, name="accessrights-matrix"),
-    path("", include(router.urls)),
-]
-
-logger.info(
-    "Generated %s CRUD endpoints and %s custom endpoints",
-    len(VIEWS_MATRIX),
-    len(CUSTOM_ENDPOINTS),
-)
-#..............................................................
-#   ~/sopira.magic/version_01/sopira_magic/apps/api/urls.py
-#   API URLs - Config-driven API Gateway URL routing
-#   Auto-generated from VIEWS_MATRIX and CUSTOM_ENDPOINTS
-#..............................................................
-
-"""
-API URLs - Config-Driven API Gateway URL Routing.
-
    URL configuration for API Gateway endpoints.
    All routes are prefixed with /api/ in main urls.py.
 
@@ -150,11 +65,11 @@ class MyUrls:
         Returns:
             List of URL patterns
         """
-router = DefaultRouter()
+        router = DefaultRouter()
         
         # Register special viewsets (not in VIEWS_MATRIX)
-router.register(r'keys', views.APIKeyViewSet, basename='apikey')
-router.register(r'versions', views.APIVersionViewSet, basename='apiversion')
+        router.register(r'keys', views.APIKeyViewSet, basename='apikey')
+        router.register(r'versions', views.APIVersionViewSet, basename='apiversion')
         
         # Auto-generate and register CRUD viewsets from VIEWS_MATRIX
         for view_name, config in VIEWS_MATRIX.items():
@@ -179,12 +94,12 @@ router.register(r'versions', views.APIVersionViewSet, basename='apiversion')
             logger.debug(f"Registered ViewSet for '{view_name}' (read_only={read_only})")
         
         # Build URL patterns
-urlpatterns = [
+        urlpatterns = [
             # Custom endpoints from CUSTOM_ENDPOINTS
             *MyUrls._generate_custom_urls(CUSTOM_ENDPOINTS),
             # Router URLs (CRUD endpoints)
-    path('', include(router.urls)),
-]
+            path('', include(router.urls)),
+        ]
         
         logger.info(
             f"Generated {len(VIEWS_MATRIX)} CRUD endpoints and "

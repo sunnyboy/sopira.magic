@@ -83,7 +83,6 @@ export default function NavBar() {
             // Authenticated menu
             <>
               <div className="flex items-center gap-1 flex-wrap">
-                <Item to="/dashboard">Dashboard</Item>
                 {canSeeMenu("dashboard") && <Item to="/dashboard">Dashboard</Item>}
                 {canSeeMenu("measurements") && <Item to="/measurements">Measurements</Item>}
                 {canSeeMenu("companies", isSuperUser) && <Item to="/companies">Company</Item>}

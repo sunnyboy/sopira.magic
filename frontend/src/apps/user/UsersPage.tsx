@@ -76,6 +76,12 @@ export function UsersPage() {
   const config: MyTableConfig<UserRow> = {
     ...userTableConfigBase,
     data: rows,
+    pageHeader: {
+      visible: false, // PageHeader je na stránke, aby sme nemali duplicitný navbar
+    },
+    pageFooter: {
+      visible: false,
+    },
   }
 
   if (error) {

@@ -12,6 +12,8 @@
 
 import { MyTable } from '@/components/MyTable/MyTable';
 import type { MyTableConfig } from '@/components/MyTable/MyTableTypes';
+import { PageHeader } from '@/components/PageHeader';
+import { PageFooter } from '@/components/PageFooter';
 
 // Factory interface matching backend
 interface Factory {
@@ -41,6 +43,12 @@ export function FactoryPage() {
     tableName: 'Factories',
     apiEndpoint: '/api/factories/',
     storageKey: 'factoriesTable',
+    pageHeader: {
+      visible: false, // header rieši wrapper
+    },
+    pageFooter: {
+      visible: false, // footer rieši wrapper
+    },
 
     // ============================================
     // FIELDS MATRIX - Deklaratívna konfigurácia polí
@@ -350,7 +358,17 @@ export function FactoryPage() {
     disableFactoryScope: true,
   };
 
-  return <MyTable<Factory> config={config} />;
+  return (
+    <>
+      <PageHeader showLogo={true} showMenu={true} />
+      <div className="min-h-screen bg-background p-6">
+        <div className="max-w-[1400px] mx-auto">
+          <MyTable<Factory> config={config} />
+        </div>
+      </div>
+      <PageFooter />
+    </>
+  );
 }
 
 export default FactoryPage;

@@ -498,4 +498,64 @@ CUSTOM_ENDPOINTS: Dict[str, CustomEndpointConfig] = {
     
     # Note: APIKey and APIVersion viewsets are registered separately
     # as they use custom ViewSet classes, not config-driven ones
+    
+    # =========================================================================
+    # User Management Endpoints
+    # =========================================================================
+    
+    "user-preferences": {
+        "path": "user/preferences/",
+        "view_function": "sopira_magic.apps.api.views.user_preferences_view",
+        "name": "user-preferences",
+        "methods": ["GET", "POST", "PUT"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    "user-filters": {
+        "path": "user/filters/",
+        "view_function": "sopira_magic.apps.api.views.user_filters_view",
+        "name": "user-filters",
+        "methods": ["GET", "POST", "DELETE"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    
+    # =========================================================================
+    # Access Rights Endpoints
+    # =========================================================================
+    
+    "accessrights-matrix": {
+        "path": "accessrights/matrix/",
+        "view_function": "sopira_magic.apps.api.views.accessrights_matrix_view",
+        "name": "accessrights-matrix",
+        "methods": ["GET"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    
+    # =========================================================================
+    # Models Metadata Endpoints
+    # =========================================================================
+    
+    "models-metadata": {
+        "path": "models/metadata/",
+        "view_function": "sopira_magic.apps.api.views.models_metadata_view",
+        "name": "models-metadata",
+        "methods": ["GET"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    
+    # =========================================================================
+    # Table State Presets Endpoints
+    # =========================================================================
+    
+    "table-state-presets": {
+        "path": "table-state-presets/",
+        "view_function": "sopira_magic.apps.api.views.table_state_presets_view",
+        "name": "table-state-presets",
+        "methods": ["GET", "POST", "PUT", "DELETE"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
 }

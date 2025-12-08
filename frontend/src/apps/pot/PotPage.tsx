@@ -7,6 +7,8 @@
 
 import { MyTable } from '@/components/MyTable/MyTable';
 import type { MyTableConfig } from '@/components/MyTable/MyTableTypes';
+import { PageHeader } from '@/components/PageHeader';
+import { PageFooter } from '@/components/PageFooter';
 
 // Pot interface matching backend
 interface Pot {
@@ -32,6 +34,12 @@ export function PotPage() {
     tableName: 'Pots',
     apiEndpoint: '/api/pots/',
     storageKey: 'potsTable',
+    pageHeader: {
+      visible: false, // header rendruje wrapper
+    },
+    pageFooter: {
+      visible: false, // footer rendruje wrapper
+    },
 
     fieldsMatrix: {
       uuid: {
@@ -293,7 +301,17 @@ export function PotPage() {
     callbacks: {},
   };
 
-  return <MyTable<Pot> config={config} />;
+  return (
+    <>
+      <PageHeader showLogo={true} showMenu={true} />
+      <div className="min-h-screen bg-background p-6">
+        <div className="max-w-[1400px] mx-auto">
+          <MyTable<Pot> config={config} />
+        </div>
+      </div>
+      <PageFooter />
+    </>
+  );
 }
 
 export default PotPage;

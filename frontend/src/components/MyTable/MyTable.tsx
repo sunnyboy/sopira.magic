@@ -269,7 +269,8 @@ export function MyTable<T extends Record<string, any>>({
 
   // Derive view name from apiEndpoint (e.g., /api/companies/ -> companies)
   const viewName = TI.useMemo(() => {
-    const match = config.apiEndpoint.match(/\\/api\\/([^\\/]+)\\/?$/);
+    const api = config.apiEndpoint ?? '';
+    const match = api.match(/\/api\/([^/]+)\/?$/);
     if (match) return match[1];
     // Fallback: storageKey or lowercased tableName without spaces
     if ((config as any).storageKey) return (config as any).storageKey.replace(/Table$/i, '').toLowerCase();

@@ -190,6 +190,10 @@ export function getDefaultOrdering(fieldName: string): string[] {
  * Note: Strips version suffixes (e.g., '-v2', '-v3') to match model name in metadata.
  */
 export function getOwnershipField(fieldName: string): string | null | undefined {
+  // Safety check: return null if fieldName is undefined or null
+  if (!fieldName) {
+    return null;
+  }
   const metadata = getCachedMetadata();
   // Strip version suffix (e.g., 'logentry-v2' → 'logentry')
   const modelName = fieldName.toLowerCase().replace(/-v\d+$/, '');

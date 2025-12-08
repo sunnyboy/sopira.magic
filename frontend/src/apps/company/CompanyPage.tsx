@@ -42,6 +42,12 @@ export function CompanyPage() {
     tableName: 'Companies',
     apiEndpoint: '/api/companies/',
     storageKey: 'companiesTable',
+    pageHeader: {
+      visible: false, // stránka už renderuje PageHeader - zabránime duplicitnému menu
+    },
+    pageFooter: {
+      visible: false,
+    },
 
     fieldsMatrix: {
       uuid: {

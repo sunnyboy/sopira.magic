@@ -7,6 +7,8 @@
 
 import { MyTable } from '@/components/MyTable/MyTable';
 import type { MyTableConfig } from '@/components/MyTable/MyTableTypes';
+import { PageHeader } from '@/components/PageHeader';
+import { PageFooter } from '@/components/PageFooter';
 
 // Measurement interface matching backend
 interface Measurement {
@@ -41,6 +43,12 @@ export function MeasurementPage() {
     tableName: 'Measurements',
     apiEndpoint: '/api/measurements/',
     storageKey: 'measurementsTable',
+    pageHeader: {
+      visible: false, // header rendruje wrapper
+    },
+    pageFooter: {
+      visible: false, // footer rendruje wrapper
+    },
 
     fieldsMatrix: {
       uuid: {
@@ -342,7 +350,17 @@ export function MeasurementPage() {
     callbacks: {},
   };
 
-  return <MyTable<Measurement> config={config} />;
+  return (
+    <>
+      <PageHeader showLogo={true} showMenu={true} />
+      <div className="min-h-screen bg-background p-6">
+        <div className="max-w-[1400px] mx-auto">
+          <MyTable<Measurement> config={config} />
+        </div>
+      </div>
+      <PageFooter />
+    </>
+  );
 }
 
 export default MeasurementPage;

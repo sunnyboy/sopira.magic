@@ -28,6 +28,7 @@
    - /api/versions/ - API version listing
 """
 
+import logging
 from django.conf import settings
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view, permission_classes
@@ -35,6 +36,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from django.db import connection
 
 from .models import APIKey, APIVersion, RateLimitConfig
 from sopira_magic.apps.pdfviewer.services import PdfViewerService
@@ -43,6 +45,10 @@ from sopira_magic.apps.accessrights.services import (
     get_access_matrix_for_user,
 )
 from sopira_magic.apps.api.view_configs import VIEWS_MATRIX
+from sopira_magic.apps.m_user.models import UserPreference
+from sopira_magic.apps.state.models import TableState
+
+logger = logging.getLogger(__name__)
 
 
 ASSIGN_FOCUSED_VIEW_PERMISSIONS = [
@@ -165,4 +171,465 @@ def accessrights_matrix_view(request):
         },
         status=status.HTTP_200_OK,
     )
+
+
+@api_view(["GET", "POST", "PUT"])
+@permission_classes([IsAuthenticated])
+def user_preferences_view(request):
+    """
+    User preferences endpoint.
+    GET: Returns user preferences for current user
+    POST/PUT: Creates or updates user preferences
+    """
+    user = request.user
+    
+    if request.method == "GET":
+        try:
+            preference = UserPreference.objects.get(user=user)
+            # Merge settings and preferences into a single response
+            response_data = {
+                **preference.settings,
+                **preference.preferences,
+            }
+            # Ensure selected_factories is always present
+            if "selected_factories" not in response_data:
+                response_data["selected_factories"] = []
+            return Response(response_data, status=status.HTTP_200_OK)
+        except UserPreference.DoesNotExist:
+            # Return empty preferences if none exist
+            return Response(
+                {
+                    "selected_factories": [],
+                    "general_settings": {},
+                },
+                status=status.HTTP_200_OK,
+            )
+    
+    elif request.method in ["POST", "PUT"]:
+        data = request.data or {}
+        
+        # Get or create UserPreference
+        preference, created = UserPreference.objects.get_or_create(user=user)
+        
+        # Update settings and preferences
+        # Frontend sends: selected_factories, general_settings, etc.
+        # We'll store them in preferences JSONField
+        if "selected_factories" in data:
+            preference.preferences["selected_factories"] = data["selected_factories"]
+        if "general_settings" in data:
+            preference.preferences["general_settings"] = data["general_settings"]
+        
+        # Merge any other fields into preferences
+        for key, value in data.items():
+            if key not in ["selected_factories", "general_settings"]:
+                preference.preferences[key] = value
+        
+        preference.save()
+        
+        # Return merged response
+        response_data = {
+            **preference.settings,
+            **preference.preferences,
+        }
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
+@api_view(["GET", "POST", "DELETE"])
+@permission_classes([IsAuthenticated])
+def user_filters_view(request):
+    """
+    User filters endpoint.
+    GET: Returns saved filters for storageKey
+    POST: Saves a new filter
+    DELETE: Deletes a filter
+    """
+    user = request.user
+    
+    # DEBUG: Log user info
+    logger.debug(f"[user_filters_view] User: id={user.id}, type={type(user.id)}, pk={user.pk}, type(pk)={type(user.pk)}")
+    
+    if request.method == "GET":
+        storage_key = request.GET.get("storageKey")
+        if not storage_key:
+            return Response(
+                {"detail": "storageKey parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # DEBUG: Check TableState model field types
+        user_field = TableState._meta.get_field('user')
+        logger.debug(f"[user_filters_view] TableState.user field: {user_field}, remote_field: {user_field.remote_field}, target_field: {user_field.remote_field.target_field if user_field.remote_field else None}")
+        
+        # Get filters for this storageKey
+        # PROBLEM: TableState is in STATE DB with UUID id, but User.id is integer
+        # SOLUTION: Use user.pk and cast to string, or use raw SQL with explicit cast
+        # Try using user.pk which should handle the type conversion
+        try:
+            filters = TableState.objects.using('state').filter(
+                user_id=str(user.id),  # Cast to string first, then let Django handle it
+                table_name=storage_key,
+                component="filter",
+                is_active=True,
+            ).order_by("-updated")
+            logger.debug(f"[user_filters_view] Query successful, found {filters.count()} filters")
+        except Exception as e:
+            logger.error(f"[user_filters_view] Query failed: {e}")
+            # Fallback: try with user object
+            try:
+                filters = TableState.objects.using('state').filter(
+                    user=user,
+                    table_name=storage_key,
+                    component="filter",
+                    is_active=True,
+                ).order_by("-updated")
+            except Exception as e2:
+                logger.error(f"[user_filters_view] Fallback query also failed: {e2}")
+                return Response(
+                    {"detail": f"Database error: {str(e2)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+        
+        filters_list = [
+            {
+                "name": f.state_data.get("name", f"Filter {f.id}"),
+                "timestamp": int(f.updated.timestamp() * 1000) if f.updated else 0,
+                "state": f.state_data.get("state", {}),
+                "storageKey": storage_key,
+                "storage_key": storage_key,  # Support both formats
+            }
+            for f in filters
+        ]
+        
+        return Response({"filters": filters_list}, status=status.HTTP_200_OK)
+    
+    elif request.method == "POST":
+        data = request.data or {}
+        name = data.get("name")
+        state = data.get("state", {})
+        storage_key = data.get("storageKey")
+        
+        if not name or not storage_key:
+            return Response(
+                {"detail": "name and storageKey are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Create or update filter
+        # First try to find existing filter with this name
+        try:
+            existing_filters = TableState.objects.filter(
+                user=user,
+                table_name=storage_key,
+                component="filter",
+            )
+            filter_state = None
+            for f in existing_filters:
+                if f.state_data.get("name") == name:
+                    filter_state = f
+                    break
+            
+            if filter_state:
+                # Update existing
+                filter_state.state_data = {
+                    "name": name,
+                    "state": state,
+                }
+                filter_state.is_active = True
+                filter_state.save()
+                created = False
+            else:
+                # Create new
+                filter_state = TableState.objects.create(
+                    user=user,
+                    table_name=storage_key,
+                    component="filter",
+                    state_data={
+                        "name": name,
+                        "state": state,
+                    },
+                    is_active=True,
+                )
+                created = True
+        except Exception:
+            # Fallback: create new
+            filter_state = TableState.objects.create(
+                user=user,
+                table_name=storage_key,
+                component="filter",
+                state_data={
+                    "name": name,
+                    "state": state,
+                },
+                is_active=True,
+            )
+            created = True
+        
+        return Response(
+            {
+                "id": filter_state.id,
+                "name": name,
+                "storageKey": storage_key,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+    
+    elif request.method == "DELETE":
+        data = request.data or {}
+        name = data.get("name")
+        storage_key = data.get("storageKey")
+        
+        if not name or not storage_key:
+            return Response(
+                {"detail": "name and storageKey are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Delete filter
+        # Find filters and delete those matching the name
+        filters = TableState.objects.filter(
+            user=user,
+            table_name=storage_key,
+            component="filter",
+        )
+        deleted_count = 0
+        for f in filters:
+            if f.state_data.get("name") == name:
+                f.delete()
+                deleted_count += 1
+        
+        if deleted_count > 0:
+            return Response(
+                {"detail": "Filter deleted successfully"},
+                status=status.HTTP_200_OK,
+            )
+        else:
+            return Response(
+                {"detail": "Filter not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def models_metadata_view(request):
+    """
+    Models metadata endpoint.
+    Returns metadata from VIEWS_MATRIX (ownership_field, etc.)
+    """
+    metadata = {}
+    
+    for view_name, config in VIEWS_MATRIX.items():
+        model_metadata = {}
+        
+        # Extract ownership_field from ownership_hierarchy
+        ownership_hierarchy = config.get("ownership_hierarchy", [])
+        if ownership_hierarchy:
+            # First field in hierarchy is typically the ownership field
+            model_metadata["ownership_field"] = ownership_hierarchy[0]
+        
+        # Add other metadata if needed
+        if config.get("factory_scoped"):
+            model_metadata["factory_scoped"] = True
+        if config.get("soft_delete"):
+            model_metadata["soft_delete"] = True
+        
+        if model_metadata:
+            metadata[view_name] = model_metadata
+    
+    return Response(metadata, status=status.HTTP_200_OK)
+
+
+@api_view(["GET", "POST", "PUT", "DELETE"])
+@permission_classes([IsAuthenticated])
+def table_state_presets_view(request):
+    """
+    Table state presets endpoint.
+    GET: Returns presets for preset_name and factory
+    POST: Creates a new preset
+    PUT: Updates an existing preset
+    DELETE: Deletes a preset
+    """
+    user = request.user
+    
+    if request.method == "GET":
+        preset_name = request.GET.get("preset_name", "__current__")
+        factory = request.GET.get("factory")
+        show_current = request.GET.get("show_current", "false").lower() == "true"
+        
+        # Build base query
+        # Use user object directly to avoid type mismatch (STATE DB may have UUID user_id)
+        presets = TableState.objects.filter(
+            user=user,
+            component="preset",
+            is_active=True,
+        ).order_by("-updated", "-id")
+        
+        # Filter in Python for JSONField nested queries
+        filtered_presets = []
+        for p in presets:
+            preset_data = p.state_data or {}
+            p_preset_name = preset_data.get("preset_name")
+            p_factory = preset_data.get("factory")
+            
+            # Check preset_name match
+            if p_preset_name != preset_name:
+                continue
+            
+            # Check factory match if provided
+            if factory and p_factory != factory:
+                continue
+            
+            # Check show_current filter
+            if not show_current and p_preset_name == "__current__":
+                continue
+            
+            filtered_presets.append(p)
+        
+        presets_list = [
+            {
+                "id": p.id,
+                "preset_name": p.state_data.get("preset_name", preset_name),
+                "factory": p.state_data.get("factory"),
+                "state": p.state_data.get("state", {}),
+                "updated": p.updated.isoformat() if p.updated else None,
+                "created": p.created.isoformat() if p.created else None,
+            }
+            for p in filtered_presets
+        ]
+        
+        # Return as list or paginated format
+        return Response(presets_list, status=status.HTTP_200_OK)
+    
+    elif request.method == "POST":
+        data = request.data or {}
+        preset_name = data.get("preset_name", "__current__")
+        factory = data.get("factory")
+        state = data.get("state", {})
+        
+        # Create or update preset
+        preset_data = {
+            "preset_name": preset_name,
+            "state": state,
+            "is_active": True,
+        }
+        if factory:
+            preset_data["factory"] = factory
+        
+        # Find existing preset
+        presets = TableState.objects.filter(
+            user=user,
+            component="preset",
+        )
+        
+        preset = None
+        for p in presets:
+            p_data = p.state_data or {}
+            if p_data.get("preset_name") == preset_name:
+                if factory:
+                    if p_data.get("factory") == factory:
+                        preset = p
+                        break
+                else:
+                    # No factory specified, match any
+                    preset = p
+                    break
+        
+        if preset:
+            # Update existing
+            preset.state_data = preset_data
+            preset.is_active = True
+            preset.save()
+            created = False
+        else:
+            # Create new
+            preset = TableState.objects.create(
+                user=user,
+                table_name="preset",  # Use preset as table_name
+                component="preset",
+                state_data=preset_data,
+                is_active=True,
+            )
+            created = True
+        
+        return Response(
+            {
+                "id": preset.id,
+                "preset_name": preset_name,
+                "factory": factory,
+                "state": state,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+    
+    elif request.method == "PUT":
+        data = request.data or {}
+        preset_id = data.get("id")
+        preset_name = data.get("preset_name", "__current__")
+        factory = data.get("factory")
+        state = data.get("state", {})
+        
+        if not preset_id:
+            return Response(
+                {"detail": "id is required for PUT"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        try:
+            preset = TableState.objects.get(
+                id=preset_id,
+                user=user,
+                component="preset",
+            )
+            
+            # Update preset data
+            preset_data = preset.state_data.copy()
+            preset_data["preset_name"] = preset_name
+            preset_data["state"] = state
+            if factory:
+                preset_data["factory"] = factory
+            
+            preset.state_data = preset_data
+            preset.save()
+            
+            return Response(
+                {
+                    "id": preset.id,
+                    "preset_name": preset_name,
+                    "factory": factory,
+                    "state": state,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except TableState.DoesNotExist:
+            return Response(
+                {"detail": "Preset not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+    
+    elif request.method == "DELETE":
+        preset_id = request.GET.get("id") or (request.data or {}).get("id")
+        
+        if not preset_id:
+            return Response(
+                {"detail": "id is required for DELETE"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        try:
+            preset = TableState.objects.get(
+                id=preset_id,
+                user=user,
+                component="preset",
+            )
+            preset.delete()
+            
+            return Response(
+                {"detail": "Preset deleted successfully"},
+                status=status.HTTP_200_OK,
+            )
+        except TableState.DoesNotExist:
+            return Response(
+                {"detail": "Preset not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 

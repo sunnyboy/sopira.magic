@@ -7,6 +7,8 @@
 
 import { MyTable } from '@/components/MyTable/MyTable';
 import type { MyTableConfig } from '@/components/MyTable/MyTableTypes';
+import { PageHeader } from '@/components/PageHeader';
+import { PageFooter } from '@/components/PageFooter';
 
 // Driver interface matching backend
 interface Driver {
@@ -32,6 +34,12 @@ export function DriverPage() {
     tableName: 'Drivers',
     apiEndpoint: '/api/drivers/',
     storageKey: 'driversTable',
+    pageHeader: {
+      visible: false, // header rendruje wrapper
+    },
+    pageFooter: {
+      visible: false, // footer rendruje wrapper
+    },
 
     fieldsMatrix: {
       uuid: {
@@ -293,7 +301,17 @@ export function DriverPage() {
     callbacks: {},
   };
 
-  return <MyTable<Driver> config={config} />;
+  return (
+    <>
+      <PageHeader showLogo={true} showMenu={true} />
+      <div className="min-h-screen bg-background p-6">
+        <div className="max-w-[1400px] mx-auto">
+          <MyTable<Driver> config={config} />
+        </div>
+      </div>
+      <PageFooter />
+    </>
+  );
 }
 
 export default DriverPage;
