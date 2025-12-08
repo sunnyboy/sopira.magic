@@ -1,0 +1,2203 @@
+security som mal riesene v projekte thermal_eye pomocou logiky v subore /Users/sopira/www/thermal_eye/thermal_eye/security_config.py
+
+rad by som tento postup vylepsene (striktne pouzita architektura ConfigDriven&SSOT (absolutne abstraktny pristup bez HardCode)) aplikoval aj v projekte sopira.magic.
+
+toto je moja predstava rozsirenej aplikacie:
+
+
+
+Single File Implementation Plan
+
+text
+apps/security/
+├── __init__.py           # Export hlavného API
+├── apps.py              # Django AppConfig s validáciou
+├── registry.py          # Abstraktné callbacky (host app implementácia)
+├── types.py             # Typové definície (TypedDict, Enum)
+├── engine.py            # Security Engine - hlavná logika
+├── config.py           # SSOT konfigurácie všetkých environmentov
+├── validators/         # Modulárne validátory
+│   ├── __init__.py
+│   ├── cors.py         # CORS validácia
+│   ├── csrf.py         # CSRF validácia
+│   ├── ssl.py          # SSL/TLS validácia a management
+│   ├── headers.py      # Security headers
+│   └── csp.py          # Content Security Policy
+├── middleware.py       # Security middleware
+├── monitoring.py       # Security monitoring a audit
+├── management/         # CLI commands
+│   └── commands/
+│       ├── __init__.py
+│       ├── security_audit.py
+│       ├── security_test.py
+│       └── ssl_check.py
+├── utils.py           # Pomocné funkcie
+├── decorators.py      # Security decorators pre views
+└── integration/       # Integrácia s inými engineami
+    └── scoping.py    # Security + Scoping integration
+📁 1. apps/security/init.py
+
+python
+"""
+Security Module - ConfigDriven & SSOT Security Engine
+
+Export hlavného API pre host aplikáciu.
+"""
+
+from .registry import (
+    register_environment_detector,
+    register_certificate_provider,
+    register_security_auditor,
+    get_environment,
+    get_certificate_info,
+)
+
+from .engine import SecurityEngine
+from .middleware import SecurityMiddleware
+from .config import EnvironmentType, SecurityLevel
+
+__all__ = [
+    # Registry API
+    'register_environment_detector',
+    'register_certificate_provider',
+    'register_security_auditor',
+    'get_environment',
+    'get_certificate_info',
+    
+    # Engine API
+    'SecurityEngine',
+    
+    # Middleware
+    'SecurityMiddleware',
+    
+    # Types
+    'EnvironmentType',
+    'SecurityLevel',
+]
+📁 2. apps/security/apps.py
+
+python
+"""
+Django AppConfig pre Security Module s automatickou validáciou.
+"""
+
+import logging
+from django.apps import AppConfig
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+
+class SecurityConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'apps.security'
+    verbose_name = 'Security Engine'
+    
+    def ready(self):
+        """
+        Validácia security konfigurácie pri štarte aplikácie.
+        """
+        validate_on_startup = getattr(settings, 'SECURITY_VALIDATE_ON_STARTUP', True)
+        
+        if validate_on_startup:
+            try:
+                from .validation import validate_security_config
+                from .engine import SecurityEngine
+                
+                # Validácia SSOT konfigurácie
+                errors = validate_security_config()
+                if errors:
+                    logger.error(f"Security configuration validation errors: {errors}")
+                
+                # Security audit na štarte
+                audit_enabled = getattr(settings, 'SECURITY_AUDIT_ON_STARTUP', False)
+                if audit_enabled:
+                    results = SecurityEngine.security_audit('quick')
+                    if not results.get('passed', True):
+                        logger.warning(f"Security audit warnings: {results}")
+                
+                logger.info("Security Engine initialized and validated")
+                
+            except Exception as e:
+                logger.error(f"Error during security engine validation: {e}", exc_info=True)
+📁 3. apps/security/registry.py
+
+python
+"""
+Abstraktný Security Registry - host app poskytne implementáciu.
+
+Thread-safe registry pre všetky security callbacky.
+ConfigDriven & SSOT princíp: všetka logika v host app.
+"""
+
+import threading
+from typing import Callable, Optional, Any, Dict
+
+# Thread-safe locks
+_registry_lock = threading.Lock()
+
+# Abstraktné callbacky (None ak nie sú registrované)
+_environment_detector: Optional[Callable[[Optional[Any]], str]] = None
+_certificate_provider: Optional[Callable[[str, Optional[str]], Dict]] = None
+_security_auditor: Optional[Callable[[str], Dict]] = None
+_custom_header_provider: Optional[Callable[[Any], Dict[str, str]]] = None
+
+
+def register_environment_detector(callback: Callable[[Optional[Any]], str]):
+    """
+    Registruje callback pre environment detection.
+    
+    Host app musí poskytnúť funkciu ktorá:
+    - Ak request=None: vráti default environment ('local', 'dev', 'production')
+    - Ak request=HttpRequest: vráti environment podľa requestu
+    
+    Args:
+        callback: Funkcia (request) -> environment_string
+    """
+    global _environment_detector
+    with _registry_lock:
+        _environment_detector = callback
+
+
+def register_certificate_provider(callback: Callable[[str, Optional[str]], Dict]):
+    """
+    Registruje callback pre SSL/TLS certificate management.
+    
+    Host app poskytne SSL správu (Let's Encrypt, certbot, vlastné certy).
+    
+    Args:
+        callback: Funkcia (action, domain=None) -> cert_info
+                 Actions: 'get', 'renew', 'validate', 'status'
+    """
+    global _certificate_provider
+    with _registry_lock:
+        _certificate_provider = callback
+
+
+def register_security_auditor(callback: Callable[[str], Dict]):
+    """
+    Registruje callback pre security auditing.
+    
+    Host app môže poskytnúť vlastnú audit logiku.
+    
+    Args:
+        callback: Funkcia (check_type) -> audit_results
+                 Check types: 'quick', 'full', 'ssl', 'headers'
+    """
+    global _security_auditor
+    with _registry_lock:
+        _security_auditor = callback
+
+
+def register_custom_header_provider(callback: Callable[[Any], Dict[str, str]]):
+    """
+    Registruje callback pre custom security headers.
+    
+    Host app môže pridať vlastné security headers.
+    
+    Args:
+        callback: Funkcia (request) -> Dict s header name: value
+    """
+    global _custom_header_provider
+    with _registry_lock:
+        _custom_header_provider = callback
+
+
+def get_environment(request=None) -> str:
+    """
+    Získaj aktuálny environment cez registry.
+    
+    Args:
+        request: Optional Django HttpRequest
+        
+    Returns:
+        str: Environment identifier ('local', 'dev', 'production', 'cloud')
+    """
+    with _registry_lock:
+        detector = _environment_detector
+    
+    if detector:
+        try:
+            return detector(request)
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Environment detector failed: {e}")
+    
+    # Fallback: zisti z environment variables
+    import os
+    env = os.getenv('DJANGO_ENV', 'local')
+    return env if env in ['local', 'dev', 'production', 'cloud'] else 'local'
+
+
+def get_certificate_info(action='get', domain=None) -> Dict:
+    """
+    Získaj SSL certificate info cez registry.
+    
+    Args:
+        action: Action type ('get', 'renew', 'validate', 'status')
+        domain: Optional domain name
+        
+    Returns:
+        Dict s certificate informáciami
+    """
+    with _registry_lock:
+        provider = _certificate_provider
+    
+    if provider:
+        try:
+            return provider(action, domain)
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Certificate provider failed: {e}")
+    
+    # Fallback: basic info
+    return {
+        'valid': False,
+        'managed': False,
+        'reason': 'no_certificate_provider_registered',
+        'errors': ['SSL certificate provider not configured']
+    }
+
+
+def get_custom_headers(request) -> Dict[str, str]:
+    """
+    Získaj custom security headers cez registry.
+    
+    Args:
+        request: Django HttpRequest
+        
+    Returns:
+        Dict s custom header name: value
+    """
+    with _registry_lock:
+        provider = _custom_header_provider
+    
+    if provider:
+        try:
+            return provider(request)
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Custom header provider failed: {e}")
+    
+    return {}
+
+
+def is_registry_configured() -> bool:
+    """
+    Kontroluje či sú všetky povinné registry nakonfigurované.
+    
+    Returns:
+        bool: True ak sú všetky required callbacky registrované
+    """
+    with _registry_lock:
+        return _environment_detector is not None
+📁 4. apps/security/types.py
+
+python
+"""
+Security Type Definitions - SSOT pre security typy.
+
+Python TypedDict definitions pre konzistentný typový systém.
+"""
+
+from typing import TypedDict, List, Dict, Any, Optional, Literal
+from enum import Enum
+
+
+class EnvironmentType(str, Enum):
+    """Typy environmentov - SSOT."""
+    LOCAL = "local"
+    DEVELOPMENT = "dev"
+    STAGING = "staging"
+    PRODUCTION = "production"
+    CLOUD = "cloud"  # Render, Heroku, AWS, etc.
+
+
+class SecurityLevel(str, Enum):
+    """Úrovne bezpečnosti - SSOT."""
+    MINIMAL = "minimal"     # Lokálny vývoj
+    STANDARD = "standard"   # Dev/Staging
+    STRICT = "strict"       # Produkcia
+    PARANOID = "paranoid"   # High-security aplikácie
+
+
+class CorsConfig(TypedDict, total=False):
+    """CORS konfigurácia."""
+    allowed_origins: List[str]
+    allowed_methods: List[str]
+    allowed_headers: List[str]
+    exposed_headers: List[str]
+    allow_credentials: bool
+    max_age: int
+
+
+class CspConfig(TypedDict, total=False):
+    """Content Security Policy konfigurácia."""
+    default_src: List[str]
+    script_src: List[str]
+    style_src: List[str]
+    img_src: List[str]
+    connect_src: List[str]
+    font_src: List[str]
+    object_src: List[str]
+    media_src: List[str]
+    frame_src: List[str]
+    sandbox: List[str]
+    report_uri: str
+
+
+class SslConfig(TypedDict, total=False):
+    """SSL/TLS konfigurácia."""
+    enabled: bool
+    redirect_http: bool
+    hsts_max_age: int
+    hsts_include_subdomains: bool
+    hsts_preload: bool
+    certificate_provider: str  # 'letsencrypt', 'certbot', 'custom'
+    auto_renew: bool
+    renew_before_days: int
+
+
+class SecurityHeaders(TypedDict, total=False):
+    """Security headers konfigurácia."""
+    x_frame_options: str
+    x_content_type_options: str
+    x_xss_protection: str
+    referrer_policy: str
+    permissions_policy: str
+    expect_ct: str
+
+
+class EnvironmentConfig(TypedDict):
+    """Kompletná konfigurácia environmentu - SSOT."""
+    name: str
+    env_type: EnvironmentType
+    security_level: SecurityLevel
+    force_https: bool
+    allowed_hosts: List[str]
+    cors: CorsConfig
+    csp: CspConfig
+    ssl: SslConfig
+    headers: SecurityHeaders
+📁 5. apps/security/config.py
+
+python
+"""
+Security Configuration - SINGLE SOURCE OF TRUTH pre všetky environmenty.
+
+ConfigDriven prístup: všetky security settings v jednom mieste.
+"""
+
+from typing import Dict
+from .types import EnvironmentType, SecurityLevel, EnvironmentConfig
+
+
+# =============================================================================
+# SECURITY CONFIGURATION MATRIX - SSOT
+# =============================================================================
+
+SECURITY_CONFIG_MATRIX: Dict[EnvironmentType, EnvironmentConfig] = {
+    EnvironmentType.LOCAL: {
+        "name": "Local Development",
+        "env_type": EnvironmentType.LOCAL,
+        "security_level": SecurityLevel.MINIMAL,
+        "force_https": False,
+        "allowed_hosts": ["localhost", "127.0.0.1", "0.0.0.0"],
+        "cors": {
+            "allowed_origins": [
+                "http://localhost:5173",
+                "http://localhost:4173",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:4173",
+                "http://localhost:8000",
+            ],
+            "allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            "allowed_headers": ["*"],
+            "exposed_headers": ["Content-Range", "X-Total-Count"],
+            "allow_credentials": True,
+            "max_age": 86400,
+        },
+        "csp": {
+            "default_src": ["'self'"],
+            "script_src": ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+            "style_src": ["'self'", "'unsafe-inline'"],
+            "img_src": ["'self'", "data:", "blob:"],
+            "connect_src": ["'self'", "ws://localhost:*", "http://localhost:*"],
+            "font_src": ["'self'", "data:"],
+            "object_src": ["'none'"],
+            "media_src": ["'self'"],
+            "frame_src": ["'none'"],
+        },
+        "ssl": {
+            "enabled": False,
+            "redirect_http": False,
+            "hsts_max_age": 0,
+            "hsts_include_subdomains": False,
+            "hsts_preload": False,
+            "certificate_provider": "none",
+            "auto_renew": False,
+            "renew_before_days": 30,
+        },
+        "headers": {
+            "x_frame_options": "DENY",
+            "x_content_type_options": "nosniff",
+            "x_xss_protection": "1; mode=block",
+            "referrer_policy": "no-referrer-when-downgrade",
+            "permissions_policy": "camera=(), microphone=(), geolocation=()",
+        }
+    },
+    
+    EnvironmentType.DEVELOPMENT: {
+        "name": "Development Server",
+        "env_type": EnvironmentType.DEVELOPMENT,
+        "security_level": SecurityLevel.STANDARD,
+        "force_https": True,
+        "allowed_hosts": [
+            "dev.thermal-eye.sopira.com",
+            "138.199.224.196",
+            "*.sopira.com",
+        ],
+        "cors": {
+            "allowed_origins": [
+                "https://dev.thermal-eye.sopira.com",
+                "http://dev.thermal-eye.sopira.com",
+                "https://138.199.224.196",
+            ],
+            "allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            "allowed_headers": ["Authorization", "Content-Type", "X-CSRFToken"],
+            "exposed_headers": ["Content-Range", "X-Total-Count"],
+            "allow_credentials": True,
+            "max_age": 86400,
+        },
+        "csp": {
+            "default_src": ["'self'"],
+            "script_src": ["'self'", "'unsafe-inline'"],
+            "style_src": ["'self'", "'unsafe-inline'"],
+            "img_src": ["'self'", "data:", "https:"],
+            "connect_src": ["'self'"],
+            "font_src": ["'self'", "https:"],
+            "object_src": ["'none'"],
+            "media_src": ["'self'"],
+            "frame_src": ["'none'"],
+        },
+        "ssl": {
+            "enabled": True,
+            "redirect_http": True,
+            "hsts_max_age": 31536000,
+            "hsts_include_subdomains": True,
+            "hsts_preload": False,
+            "certificate_provider": "letsencrypt",
+            "auto_renew": True,
+            "renew_before_days": 30,
+        },
+        "headers": {
+            "x_frame_options": "DENY",
+            "x_content_type_options": "nosniff",
+            "x_xss_protection": "1; mode=block",
+            "referrer_policy": "strict-origin-when-cross-origin",
+            "permissions_policy": "camera=(), microphone=(), geolocation=(), payment=()",
+        }
+    },
+    
+    EnvironmentType.PRODUCTION: {
+        "name": "Production",
+        "env_type": EnvironmentType.PRODUCTION,
+        "security_level": SecurityLevel.STRICT,
+        "force_https": True,
+        "allowed_hosts": [
+            "thermal-eye.sopira.com",
+            "www.sopira.com",
+            "138.199.224.196",
+            "*.sopira.com",
+        ],
+        "cors": {
+            "allowed_origins": [
+                "https://thermal-eye.sopira.com",
+                "https://www.sopira.com",
+            ],
+            "allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            "allowed_headers": ["Authorization", "Content-Type", "X-CSRFToken"],
+            "exposed_headers": ["Content-Range", "X-Total-Count"],
+            "allow_credentials": True,
+            "max_age": 86400,
+        },
+        "csp": {
+            "default_src": ["'self'"],
+            "script_src": ["'self'"],
+            "style_src": ["'self'", "'unsafe-inline'"],
+            "img_src": ["'self'", "data:", "https:"],
+            "connect_src": ["'self'"],
+            "font_src": ["'self'", "https:"],
+            "object_src": ["'none'"],
+            "media_src": ["'self'"],
+            "frame_src": ["'none'"],
+            "sandbox": ["allow-forms", "allow-scripts"],
+            "report_uri": "/api/security/csp-report/",
+        },
+        "ssl": {
+            "enabled": True,
+            "redirect_http": True,
+            "hsts_max_age": 31536000,
+            "hsts_include_subdomains": True,
+            "hsts_preload": True,
+            "certificate_provider": "letsencrypt",
+            "auto_renew": True,
+            "renew_before_days": 30,
+        },
+        "headers": {
+            "x_frame_options": "DENY",
+            "x_content_type_options": "nosniff",
+            "x_xss_protection": "1; mode=block",
+            "referrer_policy": "strict-origin-when-cross-origin",
+            "permissions_policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+            "expect_ct": "max-age=86400, enforce",
+        }
+    },
+    
+    EnvironmentType.CLOUD: {
+        "name": "Cloud Deployment (Render)",
+        "env_type": EnvironmentType.CLOUD,
+        "security_level": SecurityLevel.STRICT,
+        "force_https": True,
+        "allowed_hosts": [
+            "thermal-eye.onrender.com",
+            "*.onrender.com",
+        ],
+        "cors": {
+            "allowed_origins": [
+                "https://thermal-eye.onrender.com",
+                "https://*.onrender.com",
+            ],
+            "allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            "allowed_headers": ["Authorization", "Content-Type", "X-CSRFToken"],
+            "exposed_headers": ["Content-Range", "X-Total-Count"],
+            "allow_credentials": True,
+            "max_age": 86400,
+        },
+        "csp": {
+            "default_src": ["'self'"],
+            "script_src": ["'self'"],
+            "style_src": ["'self'", "'unsafe-inline'"],
+            "img_src": ["'self'", "data:", "https:"],
+            "connect_src": ["'self'"],
+            "font_src": ["'self'", "https:"],
+            "object_src": ["'none'"],
+            "media_src": ["'self'"],
+            "frame_src": ["'none'"],
+        },
+        "ssl": {
+            "enabled": True,
+            "redirect_http": True,
+            "hsts_max_age": 31536000,
+            "hsts_include_subdomains": True,
+            "hsts_preload": False,
+            "certificate_provider": "render",
+            "auto_renew": True,
+            "renew_before_days": 30,
+        },
+        "headers": {
+            "x_frame_options": "DENY",
+            "x_content_type_options": "nosniff",
+            "x_xss_protection": "1; mode=block",
+            "referrer_policy": "strict-origin-when-cross-origin",
+            "permissions_policy": "camera=(), microphone=(), geolocation=()",
+        }
+    }
+}
+📁 6. apps/security/engine.py
+
+python
+"""
+Security Engine - ConfigDriven & SSOT security management.
+
+Hlavná trieda ktorá spravuje všetky security operácie.
+"""
+
+import logging
+from typing import Dict, List, Optional, Any
+from django.http import HttpRequest, HttpResponse
+from django.conf import settings
+
+from .registry import get_environment, get_certificate_info, get_custom_headers
+from .types import EnvironmentType, SecurityLevel, EnvironmentConfig
+from .config import SECURITY_CONFIG_MATRIX
+from .validators.cors import CorsValidator
+from .validators.csrf import CsrfValidator
+from .validators.ssl import SslValidator
+from .validators.headers import SecurityHeadersValidator
+from .validators.csp import CspValidator
+
+logger = logging.getLogger(__name__)
+
+
+class SecurityEngine:
+    """
+    Security Engine - SINGLE SOURCE OF TRUTH pre všetky security decisions.
+    
+    ConfigDriven prístup: všetky rozhodnutia založené na SSOT konfigurácii.
+    Abstraktný: žiadne hardcode závislosti, všetko cez registry.
+    """
+    
+    @classmethod
+    def get_config(cls, request: Optional[HttpRequest] = None) -> EnvironmentConfig:
+        """
+        Získaj security konfiguráciu pre aktuálny environment - SSOT.
+        
+        Args:
+            request: Optional Django request pre kontext
+            
+        Returns:
+            EnvironmentConfig - Kompletná SSOT konfigurácia
+        """
+        env_string = get_environment(request)
+        
+        try:
+            env_type = EnvironmentType(env_string)
+        except ValueError:
+            logger.warning(f"Unknown environment type: {env_string}, falling back to LOCAL")
+            env_type = EnvironmentType.LOCAL
+        
+        config = SECURITY_CONFIG_MATRIX.get(env_type)
+        if not config:
+            logger.error(f"No SSOT configuration found for {env_type}, using LOCAL")
+            config = SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL]
+        
+        return config
+    
+    @classmethod
+    def apply_security_headers(cls, response: HttpResponse, request: HttpRequest) -> HttpResponse:
+        """
+        Aplikuje všetky security headers podľa SSOT konfigurácie.
+        
+        Args:
+            response: Django HttpResponse
+            request: Django HttpRequest
+            
+        Returns:
+            HttpResponse s všetkými security headers
+        """
+        config = cls.get_config(request)
+        
+        # 1. CSP Header (Content Security Policy)
+        csp_header = CspValidator.build_csp_header(config['csp'])
+        if csp_header:
+            response["Content-Security-Policy"] = csp_header
+        
+        # 2. HSTS (HTTP Strict Transport Security)
+        if config['ssl']['enabled'] and config['ssl']['hsts_max_age'] > 0:
+            hsts_value = f"max-age={config['ssl']['hsts_max_age']}"
+            if config['ssl']['hsts_include_subdomains']:
+                hsts_value += "; includeSubDomains"
+            if config['ssl']['hsts_preload']:
+                hsts_value += "; preload"
+            response["Strict-Transport-Security"] = hsts_value
+        
+        # 3. Základné security headers
+        headers_validator = SecurityHeadersValidator()
+        headers = headers_validator.get_headers(config['headers'])
+        
+        for header_name, header_value in headers.items():
+            response[header_name] = header_value
+        
+        # 4. CORS headers
+        cors_headers = CorsValidator.get_headers(request, config['cors'])
+        for header_name, header_value in cors_headers.items():
+            response[header_name] = header_value
+        
+        # 5. Custom headers z registry
+        custom_headers = get_custom_headers(request)
+        for header_name, header_value in custom_headers.items():
+            response[header_name] = header_value
+        
+        # 6. Remove sensitive headers v dev mode
+        if config['env_type'] in [EnvironmentType.LOCAL, EnvironmentType.DEVELOPMENT]:
+            cls._remove_sensitive_headers(response)
+        
+        return response
+    
+    @classmethod
+    def validate_cors(cls, request: HttpRequest, custom_config: Optional[Dict] = None) -> bool:
+        """
+        Validuje CORS request podľa SSOT konfigurácie.
+        
+        Args:
+            request: Django HttpRequest
+            custom_config: Optional custom CORS config
+            
+        Returns:
+            bool: True ak je request allowed
+        """
+        config = cls.get_config(request)
+        cors_config = custom_config or config['cors']
+        return CorsValidator.validate(request, cors_config)
+    
+    @classmethod
+    def validate_csrf(cls, request: HttpRequest) -> bool:
+        """
+        Validuje CSRF token podľa security level.
+        
+        Args:
+            request: Django HttpRequest
+            
+        Returns:
+            bool: True ak je CSRF valid
+        """
+        config = cls.get_config(request)
+        return CsrfValidator.validate(request, config['security_level'])
+    
+    @classmethod
+    def get_cors_headers(cls, request: HttpRequest) -> Dict[str, str]:
+        """
+        Získaj CORS headers pre response.
+        
+        Args:
+            request: Django HttpRequest
+            
+        Returns:
+            Dict s CORS headers
+        """
+        config = cls.get_config(request)
+        return CorsValidator.get_headers(request, config['cors'])
+    
+    @classmethod
+    def check_ssl_status(cls, domain: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Skontroluj SSL/TLS stav pre domain.
+        
+        Args:
+            domain: Domain to check (None = current)
+            
+        Returns:
+            Dict s SSL informáciami
+        """
+        # Najprv skús cez registry
+        cert_info = get_certificate_info('status', domain)
+        
+        if not cert_info.get('valid', False):
+            # Fallback na SslValidator
+            return SslValidator.check_status(domain)
+        
+        return cert_info
+    
+    @classmethod
+    def enforce_https_redirect(cls, request: HttpRequest) -> Optional[str]:
+        """
+        Skontroluj či je potrebný HTTPS redirect.
+        
+        Args:
+            request: Django HttpRequest
+            
+        Returns:
+            Optional[str]: Redirect URL ak je potrebný, inak None
+        """
+        config = cls.get_config(request)
+        
+        if (config['ssl']['enabled'] and 
+            config['ssl']['redirect_http'] and 
+            not request.is_secure()):
+            
+            host = request.get_host()
+            # Odstráň port ak existuje
+            if ':' in host:
+                host = host.split(':')[0]
+            
+            return f"https://{host}{request.get_full_path()}"
+        
+        return None
+    
+    @classmethod
+    def security_audit(cls, check_type: str = "quick") -> Dict[str, Any]:
+        """
+        Spusti komplexný security audit.
+        
+        Args:
+            check_type: Typ auditu ('quick', 'full', 'ssl', 'headers', 'cors')
+            
+        Returns:
+            Dict s výsledkami auditu
+        """
+        from .monitoring import SecurityAuditor
+        
+        try:
+            return SecurityAuditor.run_audit(check_type)
+        except Exception as e:
+            logger.error(f"Security audit failed: {e}")
+            return {
+                'passed': False,
+                'checks': {},
+                'errors': [str(e)],
+                'summary': 'Security audit failed to run'
+            }
+    
+    @classmethod
+    def _remove_sensitive_headers(cls, response: HttpResponse):
+        """
+        Odstráni sensitívne headers v dev mode pre debugging.
+        """
+        headers_to_remove = [
+            'Server',
+            'X-Powered-By',
+            'X-AspNet-Version',
+            'X-AspNetMvc-Version',
+        ]
+        
+        for header in headers_to_remove:
+            if header in response:
+                del response[header]
+📁 7. apps/security/validators/cors.py
+
+python
+"""
+CORS Validator - ConfigDriven CORS validácia.
+"""
+
+import re
+from typing import Dict, List, Optional
+from django.http import HttpRequest
+
+
+class CorsValidator:
+    """
+    ConfigDriven CORS validator - SSOT pre CORS rozhodnutia.
+    """
+    
+    @staticmethod
+    def validate(request: HttpRequest, cors_config: Dict) -> bool:
+        """
+        Validuje CORS request podľa konfigurácie.
+        
+        Args:
+            request: Django HttpRequest
+            cors_config: CORS konfigurácia z SSOT
+            
+        Returns:
+            bool: True ak je origin allowed
+        """
+        origin = request.META.get('HTTP_ORIGIN', '')
+        
+        if not origin:
+            # Ak nie je origin header, nie je to cross-origin request
+            return True
+        
+        allowed_origins = cors_config.get('allowed_origins', [])
+        
+        # Presná zhoda
+        if origin in allowed_origins:
+            return True
+        
+        # Wildcard matching
+        for allowed in allowed_origins:
+            if '*' in allowed:
+                pattern = allowed.replace('.', '\\.').replace('*', '.*')
+                if re.match(pattern, origin):
+                    return True
+        
+        return False
+    
+    @staticmethod
+    def get_headers(request: HttpRequest, cors_config: Dict) -> Dict[str, str]:
+        """
+        Získaj CORS headers pre response.
+        
+        Args:
+            request: Django HttpRequest
+            cors_config: CORS konfigurácia z SSOT
+            
+        Returns:
+            Dict s CORS headers
+        """
+        headers = {}
+        origin = request.META.get('HTTP_ORIGIN', '')
+        
+        if CorsValidator.validate(request, cors_config):
+            headers['Access-Control-Allow-Origin'] = origin
+            headers['Access-Control-Allow-Credentials'] = 'true'
+            
+            # Preflight headers
+            if request.method == 'OPTIONS':
+                allowed_methods = cors_config.get('allowed_methods', [])
+                allowed_headers = cors_config.get('allowed_headers', [])
+                exposed_headers = cors_config.get('exposed_headers', [])
+                max_age = cors_config.get('max_age', 86400)
+                
+                if allowed_methods:
+                    headers['Access-Control-Allow-Methods'] = ', '.join(allowed_methods)
+                if allowed_headers:
+                    headers['Access-Control-Allow-Headers'] = ', '.join(allowed_headers)
+                if exposed_headers:
+                    headers['Access-Control-Expose-Headers'] = ', '.join(exposed_headers)
+                
+                headers['Access-Control-Max-Age'] = str(max_age)
+        
+        return headers
+📁 8. apps/security/validators/csrf.py
+
+python
+"""
+CSRF Validator - ConfigDriven CSRF validácia podľa security level.
+"""
+
+from typing import Optional
+from django.http import HttpRequest
+from django.middleware.csrf import CsrfViewMiddleware
+
+from ..types import SecurityLevel
+
+
+class CsrfValidator:
+    """
+    ConfigDriven CSRF validator - SSOT pre CSRF rozhodnutia.
+    """
+    
+    @staticmethod
+    def validate(request: HttpRequest, security_level: SecurityLevel) -> bool:
+        """
+        Validuje CSRF token podľa security level.
+        
+        Args:
+            request: Django HttpRequest
+            security_level: SecurityLevel z SSOT konfigurácie
+            
+        Returns:
+            bool: True ak je CSRF valid
+        """
+        # Ak je security level MINIMAL, skip CSRF pre API calls
+        if security_level == SecurityLevel.MINIMAL:
+            # Skontroluj či je to API request (podľa content-type alebo URL)
+            content_type = request.content_type
+            if content_type and 'application/json' in content_type:
+                return True
+        
+        # Použi Django CSRF middleware pre validáciu
+        middleware = CsrfViewMiddleware(lambda req: None)
+        
+        try:
+            # Process request cez CSRF middleware
+            middleware.process_request(request)
+            
+            # Skontroluj CSRF token
+            reason = middleware._reject(request, None)
+            return reason is None
+            
+        except Exception as e:
+            # Ak CSRF validation zlyhá, logni ale vráť False
+            import logging
+            logging.getLogger(__name__).debug(f"CSRF validation failed: {e}")
+            return False
+    
+    @staticmethod
+    def get_cookie_settings(security_level: SecurityLevel, is_https: bool) -> Dict[str, Any]:
+        """
+        Získaj CSRF cookie settings podľa security level.
+        
+        Args:
+            security_level: SecurityLevel z SSOT
+            is_https: Či je connection HTTPS
+            
+        Returns:
+            Dict s CSRF cookie settings
+        """
+        if security_level == SecurityLevel.MINIMAL or not is_https:
+            return {
+                'CSRF_COOKIE_SAMESITE': 'Lax',
+                'CSRF_COOKIE_SECURE': False,
+                'CSRF_COOKIE_HTTPONLY': False,  # JavaScript potrebuje prístup
+            }
+        elif security_level == SecurityLevel.STANDARD:
+            return {
+                'CSRF_COOKIE_SAMESITE': 'Lax',
+                'CSRF_COOKIE_SECURE': is_https,
+                'CSRF_COOKIE_HTTPONLY': False,
+            }
+        else:  # STRICT alebo PARANOID
+            return {
+                'CSRF_COOKIE_SAMESITE': 'Strict',
+                'CSRF_COOKIE_SECURE': True,
+                'CSRF_COOKIE_HTTPONLY': True,
+            }
+📁 9. apps/security/validators/ssl.py
+
+python
+"""
+SSL/TLS Validator - ConfigDriven SSL validácia a management.
+"""
+
+import ssl
+import socket
+import datetime
+from typing import Dict, Optional, Any
+from ..registry import get_certificate_info
+
+
+class SslValidator:
+    """
+    ConfigDriven SSL validator - SSOT pre SSL rozhodnutia.
+    """
+    
+    @staticmethod
+    def check_status(domain: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Skontroluj SSL certifikát pre domain.
+        
+        Args:
+            domain: Domain to check (None = auto-detect)
+            
+        Returns:
+            Dict s SSL informáciami
+        """
+        if not domain:
+            # Auto-detect domain z current request
+            import socket
+            domain = socket.getfqdn()
+        
+        try:
+            # Vytvor SSL context
+            context = ssl.create_default_context()
+            
+            # Pripoj sa a získaj certifikát
+            with socket.create_connection((domain, 443), timeout=10) as sock:
+                with context.wrap_socket(sock, server_hostname=domain) as ssock:
+                    cert = ssock.getpeercert()
+                    
+                    # Parse certifikát
+                    expires_str = cert['notAfter']
+                    expires = datetime.datetime.strptime(expires_str, '%b %d %H:%M:%S %Y %Z')
+                    now = datetime.datetime.now()
+                    days_remaining = (expires - now).days
+                    
+                    # Získaj issuer info
+                    issuer = dict(x[0] for x in cert['issuer'])
+                    
+                    # Check for SAN (Subject Alternative Names)
+                    san = []
+                    for ext in cert.get('subjectAltName', []):
+                        san.append(ext[1])
+                    
+                    # Výsledky
+                    result = {
+                        'valid': True,
+                        'domain': domain,
+                        'days_remaining': days_remaining,
+                        'expires': expires_str,
+                        'issuer': issuer.get('organizationName', 'Unknown'),
+                        'issued_by': issuer,
+                        'subject': dict(x[0] for x in cert['subject']),
+                        'subject_alt_names': san,
+                        'serial_number': cert.get('serialNumber'),
+                        'version': cert.get('version'),
+                        'algorithm': ssock.cipher()[0],
+                        'warnings': [],
+                        'errors': [],
+                    }
+                    
+                    # Pridaj warningy
+                    if days_remaining < 0:
+                        result['valid'] = False
+                        result['errors'].append('Certificate has expired')
+                    elif days_remaining < 7:
+                        result['warnings'].append('Certificate expiring in less than 7 days')
+                    elif days_remaining < 30:
+                        result['warnings'].append('Certificate expiring in less than 30 days')
+                    
+                    return result
+                    
+        except ssl.SSLError as e:
+            return {
+                'valid': False,
+                'domain': domain,
+                'errors': [f'SSL error: {e}'],
+                'warnings': [],
+            }
+        except socket.timeout:
+            return {
+                'valid': False,
+                'domain': domain,
+                'errors': ['Connection timeout'],
+                'warnings': [],
+            }
+        except Exception as e:
+            return {
+                'valid': False,
+                'domain': domain,
+                'errors': [f'Unexpected error: {e}'],
+                'warnings': [],
+            }
+    
+    @staticmethod
+    def should_enforce_https(ssl_config: Dict) -> bool:
+        """
+        Má byť vynútené HTTPS podľa konfigurácie?
+        
+        Args:
+            ssl_config: SSL konfigurácia z SSOT
+            
+        Returns:
+            bool: True ak má byť HTTPS vynútené
+        """
+        return ssl_config.get('enabled', False) and ssl_config.get('redirect_http', False)
+    
+    @staticmethod
+    def get_recommendations(cert_info: Dict) -> List[str]:
+        """
+        Získaj security recommendations pre SSL certifikát.
+        
+        Args:
+            cert_info: Informácie o certifikáte
+            
+        Returns:
+            List of recommendations
+        """
+        recommendations = []
+        
+        if not cert_info.get('valid', False):
+            recommendations.append('Certificate is invalid or expired')
+            return recommendations
+        
+        days_remaining = cert_info.get('days_remaining', 0)
+        
+        if days_remaining < 30:
+            recommendations.append(f'Renew certificate (expires in {days_remaining} days)')
+        
+        algorithm = cert_info.get('algorithm', '')
+        weak_algorithms = ['RC4', 'DES', '3DES', 'MD5', 'SHA1']
+        
+        if any(weak in algorithm for weak in weak_algorithms):
+            recommendations.append(f'Upgrade from weak cipher: {algorithm}')
+        
+        return recommendations
+📁 10. apps/security/validators/headers.py
+
+python
+"""
+Security Headers Validator - ConfigDriven security headers.
+"""
+
+from typing import Dict
+
+
+class SecurityHeadersValidator:
+    """
+    ConfigDriven security headers validator - SSOT pre headers.
+    """
+    
+    @staticmethod
+    def get_headers(headers_config: Dict) -> Dict[str, str]:
+        """
+        Získaj security headers podľa SSOT konfigurácie.
+        
+        Args:
+            headers_config: Headers konfigurácia
+            
+        Returns:
+            Dict s header name: value
+        """
+        headers = {}
+        
+        # Mapovanie z config key na header name
+        header_mapping = {
+            'x_frame_options': 'X-Frame-Options',
+            'x_content_type_options': 'X-Content-Type-Options',
+            'x_xss_protection': 'X-XSS-Protection',
+            'referrer_policy': 'Referrer-Policy',
+            'permissions_policy': 'Permissions-Policy',
+            'expect_ct': 'Expect-CT',
+        }
+        
+        for config_key, header_name in header_mapping.items():
+            if config_key in headers_config:
+                headers[header_name] = headers_config[config_key]
+        
+        # Pridaj štandardné headers ktoré nie sú v configu
+        if 'X-Content-Type-Options' not in headers:
+            headers['X-Content-Type-Options'] = 'nosniff'
+        
+        if 'X-Frame-Options' not in headers:
+            headers['X-Frame-Options'] = 'DENY'
+        
+        return headers
+    
+    @staticmethod
+    def validate_headers(response_headers: Dict[str, str], expected_config: Dict) -> Dict[str, Any]:
+        """
+        Validuje či sú všetky security headers prítomné.
+        
+        Args:
+            response_headers: Headers z response
+            expected_config: Očakávaná konfigurácia
+            
+        Returns:
+            Dict s výsledkami validácie
+        """
+        results = {
+            'passed': True,
+            'missing': [],
+            'incorrect': [],
+            'details': {},
+        }
+        
+        headers = SecurityHeadersValidator.get_headers(expected_config)
+        
+        for header_name, expected_value in headers.items():
+            actual_value = response_headers.get(header_name)
+            
+            if not actual_value:
+                results['passed'] = False
+                results['missing'].append(header_name)
+                results['details'][header_name] = {
+                    'expected': expected_value,
+                    'actual': None,
+                    'status': 'MISSING'
+                }
+            elif actual_value != expected_value:
+                results['passed'] = False
+                results['incorrect'].append(header_name)
+                results['details'][header_name] = {
+                    'expected': expected_value,
+                    'actual': actual_value,
+                    'status': 'INCORRECT'
+                }
+            else:
+                results['details'][header_name] = {
+                    'expected': expected_value,
+                    'actual': actual_value,
+                    'status': 'OK'
+                }
+        
+        return results
+📁 11. apps/security/middleware.py
+
+python
+"""
+Security Middleware - ConfigDriven security middleware.
+"""
+
+import logging
+from django.http import HttpRequest, HttpResponse
+from django.utils.deprecation import MiddlewareMixin
+
+from .engine import SecurityEngine
+from .validators.ssl import SslValidator
+
+logger = logging.getLogger(__name__)
+
+
+class SecurityMiddleware(MiddlewareMixin):
+    """
+    ConfigDriven Security Middleware - SSOT pre všetky security policies.
+    """
+    
+    def __init__(self, get_response):
+        super().__init__(get_response)
+        self.get_response = get_response
+    
+    def process_request(self, request: HttpRequest):
+        """
+        Spracuj request pred view - SSOT security decisions.
+        """
+        # 1. HTTPS redirect
+        redirect_url = SecurityEngine.enforce_https_redirect(request)
+        if redirect_url:
+            logger.debug(f"Redirecting to HTTPS: {redirect_url}")
+            response = HttpResponse(status=307)
+            response['Location'] = redirect_url
+            return response
+        
+        # 2. CORS preflight handling
+        if request.method == "OPTIONS":
+            if SecurityEngine.validate_cors(request):
+                response = HttpResponse(status=200)
+                cors_headers = SecurityEngine.get_cors_headers(request)
+                for key, value in cors_headers.items():
+                    response[key] = value
+                return response
+        
+        # 3. CSRF validation (len pre state-changing methods)
+        if request.method not in ['GET', 'HEAD', 'OPTIONS', 'TRACE']:
+            if not SecurityEngine.validate_csrf(request):
+                logger.warning(f"CSRF validation failed for {request.method} {request.path}")
+                return HttpResponse('CSRF validation failed', status=403)
+        
+        # 4. Security logging (len v dev mode)
+        config = SecurityEngine.get_config(request)
+        if config['env_type'] in ['local', 'dev']:
+            logger.debug(f"Security check passed for {request.method} {request.path}")
+        
+        return None
+    
+    def process_response(self, request: HttpRequest, response: HttpResponse) -> HttpResponse:
+        """
+        Spracuj response po view - aplikuj security headers.
+        """
+        # Aplikuj všetky security headers
+        response = SecurityEngine.apply_security_headers(response, request)
+        
+        # Pridaj security info header pre debugging
+        if request.GET.get('_security_debug'):
+            config = SecurityEngine.get_config(request)
+            response['X-Security-Config'] = f"env={config['env_type'].value}, level={config['security_level'].value}"
+        
+        return response
+    
+    def process_exception(self, request: HttpRequest, exception):
+        """
+        Spracuj exception - security logging.
+        """
+        # Log security-related exceptions
+        if 'csrf' in str(exception).lower() or 'forbidden' in str(exception).lower():
+            logger.warning(f"Security exception: {exception} for {request.method} {request.path}")
+        
+        return None
+📁 12. apps/security/monitoring.py
+
+python
+"""
+Security Monitoring & Audit - ConfigDriven security monitoring.
+"""
+
+import logging
+from typing import Dict, List, Any
+from datetime import datetime, timedelta
+from django.conf import settings
+
+from .engine import SecurityEngine
+from .registry import get_certificate_info
+from .validators.ssl import SslValidator
+
+logger = logging.getLogger(__name__)
+
+
+class SecurityAuditor:
+    """
+    ConfigDriven Security Auditor - SSOT pre security audits.
+    """
+    
+    @staticmethod
+    def run_audit(check_type: str = "quick") -> Dict[str, Any]:
+        """
+        Spusti security audit podľa typu.
+        
+        Args:
+            check_type: Typ auditu ('quick', 'full', 'ssl', 'headers', 'cors')
+            
+        Returns:
+            Dict s výsledkami auditu
+        """
+        results = {
+            'timestamp': datetime.now().isoformat(),
+            'check_type': check_type,
+            'passed': True,
+            'checks': {},
+            'warnings': [],
+            'errors': [],
+            'recommendations': [],
+        }
+        
+        if check_type in ['quick', 'full', 'ssl']:
+            ssl_results = SecurityAuditor._check_ssl()
+            results['checks']['ssl'] = ssl_results
+            if not ssl_results['passed']:
+                results['passed'] = False
+        
+        if check_type in ['quick', 'full', 'headers']:
+            headers_results = SecurityAuditor._check_headers()
+            results['checks']['headers'] = headers_results
+            if not headers_results['passed']:
+                results['passed'] = False
+        
+        if check_type in ['full', 'cors']:
+            cors_results = SecurityAuditor._check_cors()
+            results['checks']['cors'] = cors_results
+            if not cors_results['passed']:
+                results['passed'] = False
+        
+        if check_type == 'full':
+            csrf_results = SecurityAuditor._check_csrf()
+            results['checks']['csrf'] = csrf_results
+            if not csrf_results['passed']:
+                results['passed'] = False
+            
+            config_results = SecurityAuditor._check_config()
+            results['checks']['config'] = config_results
+            if not config_results['passed']:
+                results['passed'] = False
+        
+        # Zhrnutie
+        if not results['passed']:
+            results['summary'] = 'Security audit failed'
+        else:
+            results['summary'] = 'Security audit passed'
+            
+            # Pridaj recommendations
+            if any(len(check.get('warnings', [])) > 0 for check in results['checks'].values()):
+                results['summary'] = 'Security audit passed with warnings'
+        
+        return results
+    
+    @staticmethod
+    def _check_ssl() -> Dict[str, Any]:
+        """Skontroluj SSL stav."""
+        cert_info = get_certificate_info('status')
+        
+        if cert_info.get('valid', False):
+            return {
+                'passed': True,
+                'message': 'SSL certificate is valid',
+                'details': cert_info,
+                'warnings': cert_info.get('warnings', []),
+                'errors': [],
+            }
+        else:
+            # Fallback na manual check
+            try:
+                cert_info = SslValidator.check_status()
+                passed = cert_info.get('valid', False)
+                
+                return {
+                    'passed': passed,
+                    'message': 'SSL check completed' if passed else 'SSL check failed',
+                    'details': cert_info,
+                    'warnings': cert_info.get('warnings', []),
+                    'errors': cert_info.get('errors', []),
+                }
+            except Exception as e:
+                return {
+                    'passed': False,
+                    'message': f'SSL check error: {e}',
+                    'details': {},
+                    'warnings': [],
+                    'errors': [str(e)],
+                }
+    
+    @staticmethod
+    def _check_headers() -> Dict[str, Any]:
+        """Skontroluj security headers."""
+        from django.test import Client
+        
+        try:
+            client = Client()
+            response = client.get('/')
+            
+            required_headers = [
+                'X-Content-Type-Options',
+                'X-Frame-Options',
+                'Content-Security-Policy',
+            ]
+            
+            missing = []
+            for header in required_headers:
+                if header not in response:
+                    missing.append(header)
+            
+            if missing:
+                return {
+                    'passed': False,
+                    'message': f'Missing security headers: {missing}',
+                    'details': dict(response.headers),
+                    'warnings': [],
+                    'errors': [f'Missing header: {h}' for h in missing],
+                }
+            else:
+                return {
+                    'passed': True,
+                    'message': 'All security headers present',
+                    'details': dict(response.headers),
+                    'warnings': [],
+                    'errors': [],
+                }
+                
+        except Exception as e:
+            return {
+                'passed': False,
+                'message': f'Headers check error: {e}',
+                'details': {},
+                'warnings': [],
+                'errors': [str(e)],
+            }
+    
+    @staticmethod
+    def _check_cors() -> Dict[str, Any]:
+        """Skontroluj CORS konfiguráciu."""
+        config = SecurityEngine.get_config()
+        cors_config = config.get('cors', {})
+        
+        if not cors_config.get('allowed_origins'):
+            return {
+                'passed': False,
+                'message': 'CORS configuration missing',
+                'details': cors_config,
+                'warnings': ['No CORS allowed origins configured'],
+                'errors': ['CORS not configured'],
+            }
+        
+        return {
+            'passed': True,
+            'message': 'CORS configuration present',
+            'details': cors_config,
+            'warnings': [],
+            'errors': [],
+        }
+    
+    @staticmethod
+    def _check_csrf() -> Dict[str, Any]:
+        """Skontroluj CSRF konfiguráciu."""
+        csrf_enabled = getattr(settings, 'CSRF_USE_SESSIONS', False) or getattr(settings, 'CSRF_COOKIE_NAME', False)
+        
+        if not csrf_enabled:
+            return {
+                'passed': False,
+                'message': 'CSRF protection not enabled',
+                'details': {
+                    'CSRF_USE_SESSIONS': getattr(settings, 'CSRF_USE_SESSIONS', 'not set'),
+                    'CSRF_COOKIE_NAME': getattr(settings, 'CSRF_COOKIE_NAME', 'not set'),
+                },
+                'warnings': [],
+                'errors': ['CSRF protection disabled'],
+            }
+        
+        return {
+            'passed': True,
+            'message': 'CSRF protection enabled',
+            'details': {
+                'CSRF_USE_SESSIONS': getattr(settings, 'CSRF_USE_SESSIONS', False),
+                'CSRF_COOKIE_NAME': getattr(settings, 'CSRF_COOKIE_NAME', 'csrftoken'),
+            },
+            'warnings': [],
+            'errors': [],
+        }
+    
+    @staticmethod
+    def _check_config() -> Dict[str, Any]:
+        """Skontroluj security konfiguráciu."""
+        config = SecurityEngine.get_config()
+        
+        issues = []
+        
+        # Check DEBUG mode
+        if settings.DEBUG and config['env_type'] not in ['local', 'dev']:
+            issues.append('DEBUG mode enabled in non-development environment')
+        
+        # Check ALLOWED_HOSTS
+        allowed_hosts = getattr(settings, 'ALLOWED_HOSTS', [])
+        if not allowed_hosts and config['env_type'] != 'local':
+            issues.append('ALLOWED_HOSTS not configured')
+        
+        # Check SECRET_KEY
+        secret_key = getattr(settings, 'SECRET_KEY', '')
+        if not secret_key or secret_key == 'django-insecure-':
+            issues.append('Insecure SECRET_KEY')
+        
+        if issues:
+            return {
+                'passed': False,
+                'message': f'Configuration issues: {len(issues)}',
+                'details': {
+                    'DEBUG': settings.DEBUG,
+                    'ALLOWED_HOSTS': allowed_hosts,
+                    'SECRET_KEY_set': bool(secret_key),
+                },
+                'warnings': [],
+                'errors': issues,
+            }
+        else:
+            return {
+                'passed': True,
+                'message': 'Configuration check passed',
+                'details': {
+                    'DEBUG': settings.DEBUG,
+                    'ALLOWED_HOSTS': allowed_hosts,
+                    'SECRET_KEY_set': bool(secret_key),
+                },
+                'warnings': [],
+                'errors': [],
+            }
+📁 13. apps/security/management/commands/security_audit.py
+
+python
+"""
+Security Audit Command - ConfigDriven security CLI tool.
+"""
+
+from django.core.management.base import BaseCommand
+from django.conf import settings
+from apps.security.engine import SecurityEngine
+
+
+class Command(BaseCommand):
+    help = 'Run comprehensive security audit - ConfigDriven & SSOT'
+    
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--check',
+            type=str,
+            default='quick',
+            choices=['quick', 'full', 'ssl', 'headers', 'cors', 'config'],
+            help='Type of audit to run'
+        )
+        parser.add_argument(
+            '--verbose',
+            action='store_true',
+            help='Show detailed results'
+        )
+        parser.add_argument(
+            '--fix',
+            action='store_true',
+            help='Attempt to fix issues automatically'
+        )
+    
+    def handle(self, *args, **options):
+        check_type = options['check']
+        verbose = options['verbose']
+        fix_mode = options['fix']
+        
+        self.stdout.write(self.style.MIGRATE_HEADING(
+            f"🔒 Running {check_type.upper()} Security Audit (ConfigDriven & SSOT)"
+        ))
+        self.stdout.write("=" * 70)
+        
+        # Spusti audit
+        results = SecurityEngine.security_audit(check_type)
+        
+        # Zobraz výsledky
+        if results.get('passed', False):
+            self.stdout.write(self.style.SUCCESS("✅ Security Audit PASSED"))
+        else:
+            self.stdout.write(self.style.ERROR("❌ Security Audit FAILED"))
+        
+        self.stdout.write(f"\n📊 Summary: {results.get('summary', 'Unknown')}")
+        self.stdout.write(f"⏰ Timestamp: {results.get('timestamp')}")
+        
+        # Zobraz checks
+        checks = results.get('checks', {})
+        for check_name, check_results in checks.items():
+            self.stdout.write(f"\n{'='*50}")
+            self.stdout.write(f"📋 {check_name.upper()} Check")
+            self.stdout.write(f"{'='*50}")
+            
+            if check_results.get('passed', False):
+                self.stdout.write(self.style.SUCCESS(f"✅ {check_results.get('message')}"))
+            else:
+                self.stdout.write(self.style.ERROR(f"❌ {check_results.get('message')}"))
+            
+            # Zobraz warnings
+            for warning in check_results.get('warnings', []):
+                self.stdout.write(self.style.WARNING(f"⚠️  Warning: {warning}"))
+            
+            # Zobraz errors
+            for error in check_results.get('errors', []):
+                self.stdout.write(self.style.ERROR(f"❌ Error: {error}"))
+            
+            # Verbose details
+            if verbose and check_results.get('details'):
+                self.stdout.write("\n🔍 Details:")
+                for key, value in check_results['details'].items():
+                    self.stdout.write(f"  {key}: {value}")
+        
+        # Recommendations
+        if results.get('recommendations'):
+            self.stdout.write("\n💡 Recommendations:")
+            for rec in results['recommendations']:
+                self.stdout.write(self.style.WARNING(f"  • {rec}"))
+        
+        # Fix mode
+        if fix_mode and not results['passed']:
+            self.stdout.write("\n🛠️  Fix Mode:")
+            self.stdout.write("Attempting to fix issues...")
+            # TODO: Implement auto-fix logic
+        
+        self.stdout.write("\n" + "=" * 70)
+        self.stdout.write(self.style.MIGRATE_HEADING("🔒 Security Audit Complete"))
+📁 14. apps/security/utils.py
+
+python
+"""
+Security Utilities - ConfigDriven pomocné funkcie.
+"""
+
+import re
+import ipaddress
+from typing import List, Optional, Union
+from urllib.parse import urlparse
+
+
+class SecurityUtils:
+    """
+    ConfigDriven security utilities - SSOT pre utility funkcie.
+    """
+    
+    @staticmethod
+    def is_safe_origin(origin: str, allowed_patterns: List[str]) -> bool:
+        """
+        Skontroluj či je origin safe podľa allowed patterns.
+        
+        Args:
+            origin: Origin URL
+            allowed_patterns: List of allowed patterns
+            
+        Returns:
+            bool: True ak je origin safe
+        """
+        if not origin:
+            return False
+        
+        try:
+            parsed = urlparse(origin)
+            
+            # Skontroluj scheme
+            if parsed.scheme not in ['http', 'https']:
+                return False
+            
+            # Presná zhoda
+            if origin in allowed_patterns:
+                return True
+            
+            # Wildcard matching
+            for pattern in allowed_patterns:
+                if '*' in pattern:
+                    # Convert pattern to regex
+                    regex_pattern = pattern.replace('.', '\\.').replace('*', '.*')
+                    if re.match(regex_pattern, origin):
+                        return True
+            
+            # Subdomain matching
+            for pattern in allowed_patterns:
+                if pattern.startswith('.'):
+                    if origin.endswith(pattern) or origin == pattern[1:]:
+                        return True
+            
+            return False
+            
+        except Exception:
+            return False
+    
+    @staticmethod
+    def validate_ip_address(ip: str) -> bool:
+        """
+        Validuj IP address.
+        
+        Args:
+            ip: IP address string
+            
+        Returns:
+            bool: True ak je IP valid
+        """
+        try:
+            ipaddress.ip_address(ip)
+            return True
+        except ValueError:
+            return False
+    
+    @staticmethod
+    def get_client_ip(request) -> Optional[str]:
+        """
+        Získaj client IP address z requestu.
+        
+        Args:
+            request: Django HttpRequest
+            
+        Returns:
+            Optional[str]: Client IP address
+        """
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0].strip()
+            if SecurityUtils.validate_ip_address(ip):
+                return ip
+        
+        ip = request.META.get('REMOTE_ADDR')
+        if ip and SecurityUtils.validate_ip_address(ip):
+            return ip
+        
+        return None
+    
+    @staticmethod
+    def sanitize_input(input_string: str, max_length: int = 1000) -> str:
+        """
+        Sanitizuj user input pre security.
+        
+        Args:
+            input_string: Input string
+            max_length: Maximum length
+            
+        Returns:
+            str: Sanitized string
+        """
+        if not input_string:
+            return ''
+        
+        # Trim whitespace
+        sanitized = input_string.strip()
+        
+        # Limit length
+        if len(sanitized) > max_length:
+            sanitized = sanitized[:max_length]
+        
+        # Remove null bytes
+        sanitized = sanitized.replace('\x00', '')
+        
+        # Remove control characters (except newline, tab)
+        sanitized = ''.join(char for char in sanitized 
+                           if char.isprintable() or char in '\n\t\r')
+        
+        return sanitized
+    
+    @staticmethod
+    def generate_security_report(audit_results: dict) -> str:
+        """
+        Vygeneruj security report v textovom formáte.
+        
+        Args:
+            audit_results: Výsledky auditu
+            
+        Returns:
+            str: Formátovaný report
+        """
+        lines = []
+        
+        lines.append("=" * 70)
+        lines.append("SECURITY AUDIT REPORT")
+        lines.append("=" * 70)
+        lines.append(f"Timestamp: {audit_results.get('timestamp')}")
+        lines.append(f"Check Type: {audit_results.get('check_type', 'unknown')}")
+        lines.append(f"Status: {'PASSED' if audit_results.get('passed') else 'FAILED'}")
+        lines.append("")
+        
+        # Checks
+        for check_name, check_results in audit_results.get('checks', {}).items():
+            lines.append(f"📋 {check_name.upper()}")
+            lines.append(f"   Status: {'✅ PASSED' if check_results.get('passed') else '❌ FAILED'}")
+            lines.append(f"   Message: {check_results.get('message', 'No message')}")
+            
+            if check_results.get('warnings'):
+                lines.append("   Warnings:")
+                for warning in check_results['warnings']:
+                    lines.append(f"     ⚠️  {warning}")
+            
+            if check_results.get('errors'):
+                lines.append("   Errors:")
+                for error in check_results['errors']:
+                    lines.append(f"     ❌ {error}")
+            
+            lines.append("")
+        
+        # Summary
+        lines.append("=" * 70)
+        lines.append(f"SUMMARY: {audit_results.get('summary', 'No summary')}")
+        lines.append("=" * 70)
+        
+        return '\n'.join(lines)
+📁 15. apps/security/decorators.py
+
+python
+"""
+Security Decorators - ConfigDriven decorators pre views.
+"""
+
+import logging
+from functools import wraps
+from typing import Callable, Optional
+from django.http import HttpRequest, HttpResponse, JsonResponse
+
+from .engine import SecurityEngine
+
+logger = logging.getLogger(__name__)
+
+
+def require_https(view_func: Callable) -> Callable:
+    """
+    Decorator ktorý vynucuje HTTPS pre view.
+    
+    Args:
+        view_func: View function
+        
+    Returns:
+        Decorated view function
+    """
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args, **kwargs):
+        redirect_url = SecurityEngine.enforce_https_redirect(request)
+        
+        if redirect_url:
+            response = HttpResponse(status=307)
+            response['Location'] = redirect_url
+            return response
+        
+        return view_func(request, *args, **kwargs)
+    
+    return wrapper
+
+
+def cors_enabled(view_func: Callable) -> Callable:
+    """
+    Decorator ktorý pridáva CORS support pre view.
+    
+    Args:
+        view_func: View function
+        
+    Returns:
+        Decorated view function
+    """
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args, **kwargs):
+        # Preflight request handling
+        if request.method == 'OPTIONS':
+            if SecurityEngine.validate_cors(request):
+                response = HttpResponse(status=200)
+                cors_headers = SecurityEngine.get_cors_headers(request)
+                for key, value in cors_headers.items():
+                    response[key] = value
+                return response
+            else:
+                return HttpResponse(status=403)
+        
+        # Regular request
+        response = view_func(request, *args, **kwargs)
+        
+        # Add CORS headers
+        if isinstance(response, HttpResponse):
+            cors_headers = SecurityEngine.get_cors_headers(request)
+            for key, value in cors_headers.items():
+                response[key] = value
+        
+        return response
+    
+    return wrapper
+
+
+def security_headers(view_func: Callable) -> Callable:
+    """
+    Decorator ktorý pridáva security headers pre view.
+    
+    Args:
+        view_func: View function
+        
+    Returns:
+        Decorated view function
+    """
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args, **kwargs):
+        response = view_func(request, *args, **kwargs)
+        
+        if isinstance(response, HttpResponse):
+            response = SecurityEngine.apply_security_headers(response, request)
+        
+        return response
+    
+    return wrapper
+
+
+def rate_limit(max_requests: int = 100, window: int = 60) -> Callable:
+    """
+    Decorator pre rate limiting.
+    
+    Args:
+        max_requests: Max requests per window
+        window: Window in seconds
+        
+    Returns:
+        Decorated view function
+    """
+    from django.core.cache import cache
+    
+    def decorator(view_func: Callable) -> Callable:
+        @wraps(view_func)
+        def wrapper(request: HttpRequest, *args, **kwargs):
+            # Získaj client IP
+            client_ip = SecurityUtils.get_client_ip(request)
+            if not client_ip:
+                return JsonResponse({'error': 'Cannot identify client'}, status=400)
+            
+            # Cache key
+            cache_key = f'rate_limit:{client_ip}:{request.path}'
+            
+            # Získaj current count
+            current = cache.get(cache_key, 0)
+            
+            if current >= max_requests:
+                return JsonResponse({
+                    'error': 'Rate limit exceeded',
+                    'retry_after': window
+                }, status=429)
+            
+            # Increment count
+            cache.set(cache_key, current + 1, window)
+            
+            return view_func(request, *args, **kwargs)
+        
+        return wrapper
+    
+    return decorator
+
+
+def require_security_level(level: str) -> Callable:
+    """
+    Decorator ktorý vyžaduje minimálny security level.
+    
+    Args:
+        level: Required security level ('minimal', 'standard', 'strict', 'paranoid')
+        
+    Returns:
+        Decorated view function
+    """
+    from .types import SecurityLevel
+    
+    def decorator(view_func: Callable) -> Callable:
+        @wraps(view_func)
+        def wrapper(request: HttpRequest, *args, **kwargs):
+            config = SecurityEngine.get_config(request)
+            current_level = config['security_level']
+            
+            # Konvertuj level string na SecurityLevel enum
+            try:
+                required_level = SecurityLevel(level)
+                current_level_enum = SecurityLevel(current_level.value)
+            except ValueError:
+                logger.error(f"Invalid security level: {level}")
+                return JsonResponse({'error': 'Invalid security configuration'}, status=500)
+            
+            # Check if current level meets requirements
+            level_order = {
+                SecurityLevel.MINIMAL: 0,
+                SecurityLevel.STANDARD: 1,
+                SecurityLevel.STRICT: 2,
+                SecurityLevel.PARANOID: 3,
+            }
+            
+            if level_order[current_level_enum] < level_order[required_level]:
+                return JsonResponse({
+                    'error': f'Insufficient security level. Required: {level}, Current: {current_level.value}'
+                }, status=403)
+            
+            return view_func(request, *args, **kwargs)
+        
+        return wrapper
+    
+    return decorator
+📁 16. thermal_eye/thermal_eye/security_config.py (Legacy compatibility)
+
+python
+"""
+Legacy Security Configuration - Backward compatibility layer.
+
+Tento súbor poskytuje kompatibilitu s existujúcim kódom
+ktorý používa staré security_config.py API.
+"""
+
+import warnings
+from apps.security.engine import SecurityEngine
+from apps.security.types import EnvironmentType
+
+warnings.warn(
+    "security_config.py je DEPRECATED. Použite apps.security.SecurityEngine",
+    DeprecationWarning,
+    stacklevel=2
+)
+
+
+def detect_environment():
+    """
+    DEPRECATED: Použite SecurityEngine.get_config()
+    
+    Returns:
+        tuple: (env_type, is_https, is_localhost)
+    """
+    config = SecurityEngine.get_config()
+    
+    is_localhost = config['env_type'] == EnvironmentType.LOCAL
+    is_https = config['force_https']
+    
+    return config['env_type'].value, is_https, is_localhost
+
+
+def get_cors_origins():
+    """
+    DEPRECATED: Použite SecurityEngine.get_config().cors['allowed_origins']
+    
+    Returns:
+        list: Allowed CORS origins
+    """
+    config = SecurityEngine.get_config()
+    return config.get('cors', {}).get('allowed_origins', [])
+
+
+def get_cors_origin_from_request(request):
+    """
+    DEPRECATED: Použite SecurityEngine.get_cors_headers()
+    
+    Args:
+        request: Django HttpRequest
+        
+    Returns:
+        str: Allowed origin for CORS
+    """
+    headers = SecurityEngine.get_cors_headers(request)
+    return headers.get('Access-Control-Allow-Origin', '')
+
+
+def set_cors_headers(response, request):
+    """
+    DEPRECATED: Použite SecurityEngine.apply_security_headers()
+    
+    Args:
+        response: Django HttpResponse
+        request: Django HttpRequest
+        
+    Returns:
+        HttpResponse: Response with CORS headers
+    """
+    response = SecurityEngine.apply_security_headers(response, request)
+    return response
+
+
+def get_session_cookie_settings():
+    """
+    DEPRECATED: Použite SecurityEngine.get_config()
+    
+    Returns:
+        dict: Session cookie settings
+    """
+    config = SecurityEngine.get_config()
+    
+    if config['env_type'] == EnvironmentType.LOCAL or not config['force_https']:
+        return {
+            "SESSION_COOKIE_SAMESITE": "Lax",
+            "SESSION_COOKIE_SECURE": False,
+            "SESSION_COOKIE_HTTPONLY": True,
+        }
+    else:
+        return {
+            "SESSION_COOKIE_SAMESITE": "None",
+            "SESSION_COOKIE_SECURE": True,
+            "SESSION_COOKIE_HTTPONLY": True,
+        }
+
+
+def get_csrf_cookie_settings():
+    """
+    DEPRECATED: Použite SecurityEngine.get_config()
+    
+    Returns:
+        dict: CSRF cookie settings
+    """
+    config = SecurityEngine.get_config()
+    
+    if config['env_type'] == EnvironmentType.LOCAL or not config['force_https']:
+        return {
+            "CSRF_COOKIE_SAMESITE": "Lax",
+            "CSRF_COOKIE_SECURE": False,
+            "CSRF_COOKIE_HTTPONLY": False,
+        }
+    else:
+        return {
+            "CSRF_COOKIE_SAMESITE": "None",
+            "CSRF_COOKIE_SECURE": True,
+            "CSRF_COOKIE_HTTPONLY": False,
+        }
+
+
+# Export pre backward compatibility
+__all__ = [
+    'detect_environment',
+    'get_cors_origins',
+    'get_cors_origin_from_request',
+    'set_cors_headers',
+    'get_session_cookie_settings',
+    'get_csrf_cookie_settings',
+]

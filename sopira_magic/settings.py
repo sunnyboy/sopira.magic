@@ -61,6 +61,9 @@ load_dotenv(BASE_DIR / ".env", override=False)
 ENV = os.getenv("ENV", "local")
 DEBUG = os.getenv("DEBUG", "1" if ENV == "local" else "0") == "1"
 
+# DEV: Skip API authentication for browser testing (disabled by default)
+DEV_SKIP_AUTH = os.getenv("DEV_SKIP_AUTH", "0") == "1"
+
 # Secret key
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-insecure-secret-key-change-in-production")
 
@@ -89,21 +92,30 @@ INSTALLED_APPS = [
     # Sopira.magic apps - Core
     "sopira_magic.apps.core",
     "sopira_magic.apps.shared",
+    "sopira_magic.apps.security",
     
     # User & Auth
-    "sopira_magic.apps.user",
+    "sopira_magic.apps.m_user",
     "sopira_magic.apps.authentification",
     
     # Business Logic
-    "sopira_magic.apps.company",
-    "sopira_magic.apps.factory",
-    "sopira_magic.apps.productionline",
-    "sopira_magic.apps.utility",
-    "sopira_magic.apps.equipment",
-    "sopira_magic.apps.resource",
-    "sopira_magic.apps.worker",
-    "sopira_magic.apps.material",
-    "sopira_magic.apps.process",
+    "sopira_magic.apps.m_company",
+    "sopira_magic.apps.m_factory",
+    "sopira_magic.apps.m_location",
+    "sopira_magic.apps.m_carrier",
+    "sopira_magic.apps.m_driver",
+    "sopira_magic.apps.m_pot",
+    "sopira_magic.apps.m_pit",
+    "sopira_magic.apps.m_machine",
+    "sopira_magic.apps.m_camera",
+    "sopira_magic.apps.m_measurement",
+    "sopira_magic.apps.m_productionline",
+    "sopira_magic.apps.m_utility",
+    "sopira_magic.apps.m_equipment",
+    "sopira_magic.apps.m_resource",
+    "sopira_magic.apps.m_worker",
+    "sopira_magic.apps.m_material",
+    "sopira_magic.apps.m_process",
     "sopira_magic.apps.endpoint",
     "sopira_magic.apps.dashboard",
     
@@ -116,10 +128,10 @@ INSTALLED_APPS = [
     "sopira_magic.apps.audit",
     "sopira_magic.apps.logging",
     "sopira_magic.apps.file_storage",
-    "sopira_magic.apps.document",
-    "sopira_magic.apps.video",
-    "sopira_magic.apps.photo",
-    "sopira_magic.apps.tag",
+    "sopira_magic.apps.m_document",
+    "sopira_magic.apps.m_video",
+    "sopira_magic.apps.m_photo",
+    "sopira_magic.apps.m_tag",
     "sopira_magic.apps.scheduler",
     "sopira_magic.apps.caching",
     "sopira_magic.apps.state",
@@ -129,8 +141,11 @@ INSTALLED_APPS = [
     "sopira_magic.apps.mobileapp",
     
     # SSOT & Config-driven
+    "sopira_magic.apps.accessrights",
     "sopira_magic.apps.relation",
     "sopira_magic.apps.generator",
+    "sopira_magic.apps.pdfviewer",
+    "sopira_magic.apps.scoping",
 ]
 
 # -----------------------------------------------------------------------------
@@ -143,9 +158,11 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
+    "sopira_magic.apps.security.middleware.SecurityMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # X-Frame-Options disabled for local dev PDF viewing in iframe
+    # "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 ROOT_URLCONF = "sopira_magic.urls"
@@ -256,6 +273,10 @@ CORS_ALLOW_CREDENTIALS = True
 # -----------------------------------------------------------------------------
 # BEZPEČNOSŤ
 # -----------------------------------------------------------------------------
+# Nastavenia pre nový security modul (ConfigDriven & SSOT)
+SECURITY_VALIDATE_ON_STARTUP = os.getenv("SECURITY_VALIDATE_ON_STARTUP", "1") == "1"
+SECURITY_AUDIT_ON_STARTUP = os.getenv("SECURITY_AUDIT_ON_STARTUP", "0") == "1"
+
 env_type, is_https, is_localhost = detect_environment()
 
 # Session cookie settings
@@ -313,6 +334,11 @@ LOGGING = {
         'sopira_magic.apps.generator': {
             'handlers': ['console'],
             'level': 'INFO',
+            'propagate': False,
+        },
+        'sopira_magic.apps.authentification': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
             'propagate': False,
         },
     },

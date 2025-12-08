@@ -15,6 +15,7 @@ Field Generators - Auto-Detecting Field Type Generators.
    - Adapts generation based on field constraints (max_length, choices, etc.)
    - Supports configurable ranges (date_range, number_range, decimals, step)
    - Handles field dependencies (e.g., email from first_name + last_name)
+    - Supports ForeignKey field generation via 'fk' type
 
    Field Type Support:
    - CharField, TextField: Random strings, templates, datasets
@@ -24,6 +25,7 @@ Field Generators - Auto-Detecting Field Type Generators.
    - EmailField: Email generation from datasets
    - URLField: URL generation
    - UUIDField: UUID generation
+    - ForeignKey: FK object selection via 'fk' type
 
    Generation Types:
    - template: Template-based (e.g., 'COMP-{index:03d}')
@@ -33,12 +35,31 @@ Field Generators - Auto-Detecting Field Type Generators.
    - random: Random value based on field type
    - static: Static value
    - increment: Incremental value
+    - choice: Random choice from list
+    - fk: ForeignKey object selection (NEW)
+
+FK Type Configuration:
+    ```python
+    'company': {
+        'type': 'fk',
+        'model': 'company.Company',
+        'strategy': 'round_robin',  # or 'random', 'from_context'
+        'nullable': True,           # optional, skip if no objects
+        'filter': {'active': True}, # optional queryset filter
+    }
+    ```
 
    Usage:
    ```python
    from sopira_magic.apps.generator.field_generators import generate_field_value
+    
+    # Standard field
    field = User._meta.get_field('email')
    value = generate_field_value(field, {'type': 'dataset', 'dataset': 'email'}, 1, {})
+    
+    # FK field
+    field = Factory._meta.get_field('company')
+    value = generate_field_value(field, {'type': 'fk', 'model': 'company.Company'}, 1, {})
    ```
 """
 
@@ -95,6 +116,10 @@ class FieldGenerator:
             return FieldGenerator._generate_increment(field_config, index, context)
         elif field_type == 'dataset':
             return FieldGenerator._generate_from_dataset(field_config, index, context)
+        elif field_type == 'fk':
+            return FieldGenerator._generate_fk(field_config, index, context)
+        elif field_type == 'choice':
+            return FieldGenerator._generate_choice(field_config, index, context)
         else:
             return None
     
@@ -208,6 +233,61 @@ class FieldGenerator:
         start = field_config.get('start', 1)
         step = field_config.get('step', 1)
         return start + (index * step)
+    
+    @staticmethod
+    def _generate_fk(field_config: Dict[str, Any], index: int, context: Dict[str, Any] = None) -> Any:
+        """
+        Generate FK value by selecting from existing objects.
+        
+        Config options:
+        - model: Model path (e.g., 'factory.Factory')
+        - strategy: 'random' | 'round_robin' | 'from_context'
+        - context_key: Key to get FK from context (for from_context strategy)
+        - filter: Optional dict of filters to apply to queryset
+        """
+        context = context or {}
+        model_path = field_config.get('model')
+        strategy = field_config.get('strategy', 'random')
+        
+        if not model_path:
+            return None
+        
+        # Get model class
+        app_label, model_name = model_path.split('.')
+        model_class = apps.get_model(app_label, model_name)
+        
+        # Get from context if specified
+        if strategy == 'from_context':
+            context_key = field_config.get('context_key')
+            if context_key and context_key in context:
+                return context[context_key]
+        
+        # Apply filters if specified
+        queryset = model_class.objects.all()
+        filters = field_config.get('filter', {})
+        if filters:
+            queryset = queryset.filter(**filters)
+        
+        # Select object based on strategy
+        objects = list(queryset)
+        if not objects:
+            return None
+        
+        if strategy == 'round_robin':
+            # Distribute evenly across objects
+            return objects[index % len(objects)]
+        else:  # random
+            import random
+            return random.choice(objects)
+    
+    @staticmethod
+    def _generate_choice(field_config: Dict[str, Any], index: int, context: Dict[str, Any] = None) -> Any:
+        """Generate value from list of choices."""
+        import random
+        choices = field_config.get('choices', [])
+        if not choices:
+            return None
+        return random.choice(choices)
     
     @staticmethod
     def _generate_from_dataset(field_config: Dict[str, Any], index: int, context: Dict[str, Any] = None) -> Any:

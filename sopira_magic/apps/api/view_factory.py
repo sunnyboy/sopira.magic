@@ -1,0 +1,211 @@
+#..............................................................
+#   ~/sopira.magic/version_01/sopira_magic/apps/api/view_factory.py
+#   ViewFactory - config-driven DRF ViewSet creation
+#   Lightweight replacement for hand-written ModelViewSets
+#..............................................................
+
+"""
+ViewFactory - Config-driven ViewSet creation.
+
+This module provides a minimal factory for creating Django REST Framework
+viewsets from declarative configuration (VIEWS_MATRIX). It is inspired by
+MyView from the previous project but intentionally kept small and focused
+for the new architecture.
+
+Goals:
+- Avoid per-entity boilerplate viewsets
+- Keep shared logic generic and domain-agnostic
+- Let domain configuration live in VIEWS_MATRIX
+
+Features:
+- Query optimization (select_related, prefetch_related)
+- Custom hooks (before_create, after_create, before_update, after_update)
+- Config-driven serializer selection (MySerializer fallback)
+- Scoping integration via ScopingViewSetMixin
+"""
+
+import logging
+from typing import Type
+
+from django.db.models import QuerySet
+from rest_framework import viewsets
+from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
+from django_filters.rest_framework import DjangoFilterBackend
+from django.conf import settings
+
+# DEV_MODE: Skip authentication for testing (set in settings.py)
+DEV_MODE = getattr(settings, 'DEV_SKIP_AUTH', False)
+
+from sopira_magic.apps.scoping.middleware import ScopingViewSetMixin
+from .view_configs import VIEWS_MATRIX, ViewConfig
+from .permissions import IsSuperUserPermission, AccessRightsPermission
+
+logger = logging.getLogger(__name__)
+
+
+def create_viewset(view_name: str, read_only: bool = True) -> Type[viewsets.ViewSet]:
+    """Create a DRF ViewSet from VIEWS_MATRIX.
+
+    By default this factory creates a read-only viewset (list + detail).
+    If `read_only` is set to False, a full ModelViewSet is created,
+    using the same configuration. This allows certain endpoints to
+    support write operations while keeping call-sites minimal.
+    
+    Features:
+    - Query optimization via select_related/prefetch_related from config
+    - Custom hooks (before_create, after_create, before_update, after_update)
+    - MySerializer fallback when serializer_read is None
+    - Scoping integration via ScopingViewSetMixin
+    
+    Args:
+        view_name: Key in VIEWS_MATRIX (e.g., "factories", "measurements")
+        read_only: If True, creates ReadOnlyModelViewSet, else ModelViewSet
+        
+    Returns:
+        Configured ViewSet class ready for URL routing
+        
+    Raises:
+        KeyError: If view_name not found in VIEWS_MATRIX
+    """
+    if view_name not in VIEWS_MATRIX:
+        raise KeyError(f"Unknown view_name in VIEWS_MATRIX: {view_name!r}")
+
+    cfg: ViewConfig = VIEWS_MATRIX[view_name]
+    model = cfg["model"]
+    serializer_read = cfg.get("serializer_read")
+    serializer_write = cfg.get("serializer_write")
+    base_filters = cfg.get("base_filters", {})
+    search_fields_cfg = cfg.get("search_fields", [])
+    ordering_fields_cfg = cfg.get("ordering_fields", [])
+    default_ordering_cfg = cfg.get("default_ordering", [])
+    filter_fields_cfg = cfg.get("filter_fields", [])
+    permission_classes_cfg = cfg.get("permission_classes")
+    
+    # Query optimization from config
+    select_related_cfg = cfg.get("select_related", [])
+    prefetch_related_cfg = cfg.get("prefetch_related", [])
+    
+    # Hooks from config
+    before_create_hook = cfg.get("before_create")
+    after_create_hook = cfg.get("after_create")
+    before_update_hook = cfg.get("before_update")
+    after_update_hook = cfg.get("after_update")
+
+    # Get serializer class - use MySerializer if not specified
+    def _get_serializer_class():
+        if serializer_read is not None:
+            return serializer_read
+        # Lazy import to avoid circular imports
+        from .serializers import MySerializer
+        return MySerializer.create_serializer(view_name)
+
+    def get_queryset(self) -> QuerySet:  # type: ignore[override]
+        """Dynamic queryset with optimization and filters."""
+        qs = model.objects.all()
+        
+        # Apply query optimization (select_related, prefetch_related)
+        if select_related_cfg:
+            qs = qs.select_related(*select_related_cfg)
+        if prefetch_related_cfg:
+            qs = qs.prefetch_related(*prefetch_related_cfg)
+        
+        # Apply base filters (e.g., active=True)
+        if base_filters:
+            qs = qs.filter(**base_filters)
+
+        # Apply simple exact filters from query params for configured fields.
+        request = getattr(self, "request", None)
+        if request is not None and filter_fields_cfg:
+            params = request.query_params
+            dynamic_filters = {
+                field: params.get(field)
+                for field in filter_fields_cfg
+                if params.get(field) is not None
+            }
+            if dynamic_filters:
+                qs = qs.filter(**dynamic_filters)
+
+        return qs
+
+    def get_serializer_class(self):
+        """Return appropriate serializer for read vs write operations."""
+        action = getattr(self, 'action', None)
+        if action in ['create', 'update', 'partial_update']:
+            if serializer_write is not None:
+                return serializer_write
+        return _get_serializer_class()
+    
+    def perform_create(self, serializer):
+        """Create with custom before/after hooks."""
+        if before_create_hook:
+            instance = before_create_hook(serializer, self.request)
+        else:
+            instance = serializer.save()
+        
+        if after_create_hook:
+            after_create_hook(instance, self.request)
+        
+        return instance
+    
+    def perform_update(self, serializer):
+        """Update with custom before/after hooks."""
+        if before_update_hook:
+            instance = before_update_hook(serializer, self.request)
+        else:
+            instance = serializer.save()
+        
+        if after_update_hook:
+            after_update_hook(instance, self.request)
+        
+        return instance
+
+    # DEV_MODE: Skip authentication for development testing
+    if DEV_MODE:
+        effective_permissions = [AllowAny]
+        logger.warning(f"DEV_MODE: AllowAny permissions for '{view_name}'")
+    else:
+        if permission_classes_cfg:
+            effective_permissions = permission_classes_cfg
+        elif cfg.get("require_superuser"):
+            effective_permissions = [IsAuthenticated, IsSuperUserPermission]
+        elif cfg.get("require_staff"):
+            effective_permissions = [IsAuthenticated, IsAdminUser]
+        else:
+            effective_permissions = [IsAuthenticated]
+
+    # AccessRightsPermission can act as SSOT gate (no-op if matrix absent)
+    if AccessRightsPermission not in effective_permissions and not DEV_MODE:
+        effective_permissions = [AccessRightsPermission, *effective_permissions]
+    
+    attrs = {
+        "filter_backends": [DjangoFilterBackend, SearchFilter, OrderingFilter],
+        # Allow per-view permission overrides via config (config-driven SSOT).
+        # If no permission_classes are configured, default to IsAuthenticated.
+        "permission_classes": effective_permissions,
+        "search_fields": search_fields_cfg,
+        "ordering_fields": ordering_fields_cfg,
+        "ordering": default_ordering_cfg,
+        "get_queryset": get_queryset,
+        "get_serializer_class": get_serializer_class,
+        # Provide scoping metadata for ScopingViewSetMixin
+        "_view_name": view_name,
+        "_view_config": cfg,
+    }
+    
+    # Add hooks only for writable viewsets
+    if not read_only:
+        attrs["perform_create"] = perform_create
+        attrs["perform_update"] = perform_update
+
+    base_class = viewsets.ReadOnlyModelViewSet if read_only else viewsets.ModelViewSet
+
+    ConfiguredViewSet = type(  # type: ignore[misc]
+        f"{model.__name__}ConfiguredViewSet",
+        (ScopingViewSetMixin, base_class),
+        attrs,
+    )
+    
+    logger.debug(f"Created ViewSet for '{view_name}' (read_only={read_only})")
+
+    return ConfiguredViewSet

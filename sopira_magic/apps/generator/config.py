@@ -11,38 +11,47 @@ Generator Config - SSOT for Data Generation.
    Defines how to generate data for each model with field-specific rules.
 
    Configuration Structure:
-   - GENERATOR_CONFIG: Dictionary of model generation configurations
-   - Each config has: model, count, fields, relations, post_create_hooks
+    GENERATOR_CONFIG = {
+        'model_key': {
+            'model': 'app_label.ModelName',      # Required
+            'count': 10,                          # Default count
+            'depends_on': ['other_model'],        # FK dependencies for ordering
+            'fields': {...},                      # Field generation rules
+            'relations': {...},                   # Dynamic relations (optional)
+        },
+    }
 
    Field Generation Types:
-   - template: Template-based generation (e.g., 'COMP-{index:03d}')
-   - dataset: Use predefined dataset (e.g., 'business_name', 'first_name')
+    - template: Template-based (e.g., 'COMP-{index:03d}')
+    - dataset: Predefined dataset (e.g., 'business_name', 'first_name')
    - copy: Copy value from another field
    - lorem: Generate Lorem Ipsum text
    - random: Random value based on field type
    - static: Static value
    - increment: Incremental value
-   - date_range: Random date within range
-   - number_range: Random number within range
+    - choice: Random choice from list
+    - fk: ForeignKey field (NEW)
 
-   Relation Types:
-   - random: Each generated object gets a random related object from existing pool
-     Example: 20 companies randomly assigned to 10 users (some users may have 0)
-   - per_source: For each source object, generates N target objects (guaranteed coverage)
-     Example: If 10 users exist and count_per_source=2, creates 20 companies (2 per user)
-     Parameters:
-       * type: 'per_source'
-       * model: Source model path (e.g., 'user.User')
-       * count_per_source: Number of target objects per source object (default: 1)
-       * required: If True, creates source object if missing (default: False)
-   - user: Uses provided user or first user for relation
-     Example: All generated objects relate to the same user
+FK Field Type (for hardcoded ForeignKey):
+    'field_name': {
+        'type': 'fk',
+        'model': 'app_label.ModelName',
+        'strategy': 'random' | 'round_robin' | 'from_context',
+        'nullable': True/False,  # Optional, default False
+        'filter': {'field': 'value'},  # Optional queryset filter
+    }
 
-   Configured Models:
-   - company: Business name generation, relations to user
-   - factory: Template-based names, relations to company
-   - productionline: Template-based names, relations to factory
-   - user: Full user generation with all fields (username, email, phone, address, role, etc.)
+Relation Types (for dynamic relations via RelationService):
+    - random: Each object gets random related object
+    - per_source: For each source, generates N targets (guaranteed coverage)
+    - user: Uses provided user or first user
+
+Range Support:
+    - date_range: {'start': '2024-01-01', 'end': '2024-12-31'}
+    - time_range: {'start': '08:00:00', 'end': '17:00:00'}
+    - number_range: {'min': 0, 'max': 100}
+    - decimals: 2 (decimal places)
+    - step: 5 (value increments)
 
    Helper Functions:
    - get_generator_config(model_key): Get specific generator config
@@ -50,280 +59,340 @@ Generator Config - SSOT for Data Generation.
 
    Usage:
    ```python
-   from sopira_magic.apps.generator.config import GENERATOR_CONFIG, get_generator_config
-   config = get_generator_config('user')
+    from sopira_magic.apps.generator.config import get_generator_config
+    config = get_generator_config('factory')
+    
+    # Or via management command:
+    # python manage.py generate_all_data
+    # python manage.py generate_data factory --count 10
    ```
 """
 
-# Single Source of Truth for generator configurations
+# =============================================================================
+# GENERATOR_CONFIG - Single Source of Truth for data generation
+# =============================================================================
+#
+# Generation Order (respects FK dependencies via 'depends_on'):
+# 1. user (no dependencies)
+# 2. company (no FK, but User M2M handled separately)
+# 3. factory (company FK)
+# 4. location, carrier, driver, pot, machine (factory FK)
+# 5. pit (factory FK, location FK optional)
+# 6. camera (factory FK, location FK optional)
+# 7. measurement (factory, location, carrier, driver, pot, pit?, machine? FK)
+# 8. photo, video (measurement FK)
+#
+# FK Field Type:
+#   'field_name': {
+#       'type': 'fk',
+#       'model': 'app_label.ModelName',
+#       'strategy': 'random' | 'round_robin' | 'from_context',
+#       'filter': {'field': 'value'},  # optional queryset filter
+#   }
+# =============================================================================
+
 GENERATOR_CONFIG = {
-    'company': {
-        'model': 'company.Company',
-        'count': 10,
-        'fields': {
-            'code': {
-                'type': 'template',
-                'template': 'COMP-{index:03d}',
-            },
-            'name': {
-                'type': 'dataset',
-                'dataset': 'business_name',
-            },
-            'human_id': {
-                'type': 'copy',
-                'from': 'code',
-            },
-            'comment': {
-                'type': 'lorem',
-                'words': 10,
-            },
-            'note': {
-                'type': 'lorem',
-                'words': 5,
-            },
-        },
-        'relations': {
-            'user': {
-                'type': 'per_source',  # Changed from 'random' to 'per_source'
-                'model': 'user.User',
-                'count_per_source': 5,  # 5 companies per user (guaranteed)
-                'required': True,
-            },
-        },
-    },
-    
-    'factory': {
-        'model': 'factory.Factory',
-        'count': 20,
-        'fields': {
-            'code': {
-                'type': 'template',
-                'template': 'FAC-{index:03d}',
-            },
-            'name': {
-                'type': 'template',
-                'template': 'Factory {index}',
-            },
-            'human_id': {
-                'type': 'copy',
-                'from': 'code',
-            },
-            'comment': {
-                'type': 'lorem',
-                'words': 8,
-            },
-        },
-        'relations': {
-            'company': {
-                'type': 'per_source',  # Changed from 'random' to 'per_source'
-                'model': 'company.Company',
-                'count_per_source': 3,  # 3 factories per company (guaranteed)
-                'required': True,
-            },
-        },
-    },
-    
-    'productionline': {
-        'model': 'productionline.ProductionLine',
-        'count': 50,
-        'fields': {
-            'code': {
-                'type': 'template',
-                'template': 'PL-{index:03d}',
-            },
-            'name': {
-                'type': 'template',
-                'template': 'Production Line {index}',
-            },
-            'human_id': {
-                'type': 'copy',
-                'from': 'code',
-            },
-        },
-        'relations': {
-            'factory': {
-                'type': 'per_source',  # Changed from 'random' to 'per_source'
-                'model': 'factory.Factory',
-                'count_per_source': 4,  # 4 production lines per factory (guaranteed)
-                'required': True,
-            },
-        },
-    },
+    # =========================================================================
+    # LEVEL 0: No dependencies
+    # =========================================================================
     
     'user': {
         'model': 'user.User',
-        'count': 100,
+        'count': 5,
+        'depends_on': [],
         'fields': {
-            'username': {
-                'type': 'dataset',
-                'dataset': 'username',
-                # Will use first_name and last_name from context
-            },
-            'first_name': {
-                'type': 'dataset',
-                'dataset': 'first_name',
-            },
-            'last_name': {
-                'type': 'dataset',
-                'dataset': 'last_name',
-            },
-            'email': {
-                'type': 'dataset',
-                'dataset': 'email',
-                # Will use first_name and last_name from context
-            },
-            'phone': {
-                'type': 'dataset',
-                'dataset': 'phone',
-                'country': 'Slovakia',
-            },
-            'address': {
-                'type': 'dataset',
-                'dataset': 'address',
-                'country': 'Slovakia',
-            },
-            'role': {
-                'type': 'dataset',
-                'dataset': 'role',
-            },
-            'date_of_birth': {
-                'date_range': {
-                    'start': '1950-01-01',
-                    'end': '2005-12-31',
-                },
-            },
-            'photo_url': {
-                'type': 'dataset',
-                'dataset': 'photo_url',
-                # Will use full_name from context
-            },
-            'tags': {
-                'type': 'dataset',
-                'dataset': 'tags',
-                'count': 3,  # Number of tags per user
-                'as_list': True,  # Return as list for tag app
-            },
-            'is_active': {
-                'type': 'static',
-                'value': True,
-            },
-            'is_staff': {
-                'type': 'static',
-                'value': False,
-            },
-            'is_superuser': {
-                'type': 'static',
-                'value': False,
+            'username': {'type': 'dataset', 'dataset': 'username'},
+            'first_name': {'type': 'dataset', 'dataset': 'first_name'},
+            'last_name': {'type': 'dataset', 'dataset': 'last_name'},
+            'email': {'type': 'dataset', 'dataset': 'email'},
+            'phone': {'type': 'dataset', 'dataset': 'phone', 'country': 'Slovakia'},
+            'address': {'type': 'dataset', 'dataset': 'address', 'country': 'Slovakia'},
+            'role': {'type': 'dataset', 'dataset': 'role'},
+            'is_active': {'type': 'static', 'value': True},
+            'is_staff': {'type': 'static', 'value': False},
+            'is_superuser': {'type': 'static', 'value': False},
+        },
+    },
+    
+    # =========================================================================
+    # LEVEL 1: No FK (User M2M handled via post_create hook)
+    # =========================================================================
+    
+    'company': {
+        'model': 'company.Company',
+        'count': 3,
+        'depends_on': ['user'],  # For M2M
+        'fields': {
+            'code': {'type': 'template', 'template': 'COMP-{index:03d}'},
+            'name': {'type': 'dataset', 'dataset': 'business_name'},
+            'human_id': {'type': 'copy', 'from': 'code'},
+            'comment': {'type': 'lorem', 'words': 10},
+            'note': {'type': 'lorem', 'words': 5},
             },
         },
-        # Note: tags will be handled separately via tag app (TaggedItem)
+    
+    # =========================================================================
+    # LEVEL 2: Company FK
+    # =========================================================================
+    
+    'factory': {
+        'model': 'factory.Factory',
+        'count': 6,
+        'depends_on': ['company'],
+        'fields': {
+            'code': {'type': 'template', 'template': 'FAC-{index:03d}'},
+            'name': {'type': 'template', 'template': 'Factory {index}'},
+            'human_id': {'type': 'copy', 'from': 'code'},
+            'address': {'type': 'dataset', 'dataset': 'address', 'country': 'Slovakia'},
+            'comment': {'type': 'lorem', 'words': 8},
+            # FK field
+            'company': {
+                'type': 'fk',
+                'model': 'company.Company',
+                'strategy': 'round_robin',
+            },
+        },
     },
+    
+    # =========================================================================
+    # LEVEL 3: Factory FK (lookup entities)
+    # =========================================================================
+    
+    'location': {
+        'model': 'location.Location',
+        'count': 12,
+        'depends_on': ['factory'],
+        'fields': {
+            'code': {'type': 'template', 'template': 'LOC-{index:03d}'},
+            'name': {'type': 'dataset', 'dataset': 'working_place'},
+            'human_id': {'type': 'copy', 'from': 'code'},
+            'factory': {
+                'type': 'fk',
+                'model': 'factory.Factory',
+                'strategy': 'round_robin',
+            },
+        },
+    },
+    
+    'carrier': {
+        'model': 'carrier.Carrier',
+        'count': 12,
+        'depends_on': ['factory'],
+        'fields': {
+            'code': {'type': 'template', 'template': 'CAR-{index:03d}'},
+            'name': {'type': 'template', 'template': 'Carrier {index}'},
+            'human_id': {'type': 'copy', 'from': 'code'},
+            'factory': {
+                'type': 'fk',
+                'model': 'factory.Factory',
+                'strategy': 'round_robin',
+            },
+        },
+    },
+    
+    'driver': {
+        'model': 'driver.Driver',
+        'count': 18,
+        'depends_on': ['factory'],
+        'fields': {
+            'code': {'type': 'template', 'template': 'DRV-{index:03d}'},
+            'name': {'type': 'dataset', 'dataset': 'full_name'},
+            'human_id': {'type': 'copy', 'from': 'code'},
+            'factory': {
+                'type': 'fk',
+                'model': 'factory.Factory',
+                'strategy': 'round_robin',
+            },
+        },
+    },
+    
+    'pot': {
+        'model': 'pot.Pot',
+        'count': 24,
+        'depends_on': ['factory'],
+        'fields': {
+            'code': {'type': 'template', 'template': 'POT-{index:03d}'},
+            'name': {'type': 'template', 'template': 'Pot {index}'},
+            'human_id': {'type': 'copy', 'from': 'code'},
+            'knocks_max': {'number_range': {'min': 15, 'max': 25}},
+            'weight_nominal_kg': {'number_range': {'min': 500.0, 'max': 2000.0}, 'decimals': 2},
+            'factory': {
+                'type': 'fk',
+                'model': 'factory.Factory',
+                'strategy': 'round_robin',
+            },
+        },
+    },
+    
+    'pit': {
+        'model': 'pit.Pit',
+        'count': 12,
+        'depends_on': ['factory', 'location'],
+        'fields': {
+            'code': {'type': 'template', 'template': 'PIT-{index:03d}'},
+            'name': {'type': 'template', 'template': 'Pit {index}'},
+            'human_id': {'type': 'copy', 'from': 'code'},
+            'capacity_tons': {'number_range': {'min': 50.0, 'max': 500.0}, 'decimals': 2},
+            'is_active': {'type': 'static', 'value': True},
+            'factory': {
+                'type': 'fk',
+                'model': 'factory.Factory',
+                'strategy': 'round_robin',
+            },
+            'location': {
+                'type': 'fk',
+                'model': 'location.Location',
+                'strategy': 'random',
+                'nullable': True,  # Optional FK
+            },
+        },
+    },
+    
+    'machine': {
+        'model': 'machine.Machine',
+        'count': 6,
+        'depends_on': ['factory'],
+        'fields': {
+            'code': {'type': 'template', 'template': 'MACH-{index:03d}'},
+            'name': {'type': 'dataset', 'dataset': 'equipment'},
+            'human_id': {'type': 'copy', 'from': 'code'},
+            'firmware_number': {'type': 'template', 'template': 'FW-{index}.0.0'},
+            'factory': {
+                'type': 'fk',
+                'model': 'factory.Factory',
+                'strategy': 'round_robin',
+            },
+        },
+    },
+    
+    'camera': {
+        'model': 'camera.Camera',
+        'count': 12,
+        'depends_on': ['factory', 'location'],
+        'fields': {
+            'code': {'type': 'template', 'template': 'CAM-{index:03d}'},
+            'name': {'type': 'template', 'template': 'Thermal Camera {index}'},
+            'human_id': {'type': 'copy', 'from': 'code'},
+            'manufacturer': {'type': 'static', 'value': 'FLIR'},
+            'manufacturer_name': {'type': 'static', 'value': 'FLIR Systems'},
+            'camera_serie': {'type': 'template', 'template': 'A{index}00'},
+            'camera_sn': {'type': 'template', 'template': 'SN{index:08d}'},
+            'ip': {'type': 'template', 'template': '192.168.1.{index}'},
+            'port': {'type': 'static', 'value': 8080},
+            'protocol': {'type': 'static', 'value': 'RTSP'},
+            'resolution': {'type': 'static', 'value': '640x480'},
+            'factory': {
+                'type': 'fk',
+                'model': 'factory.Factory',
+                'strategy': 'round_robin',
+            },
+            'location': {
+                'type': 'fk',
+                'model': 'location.Location',
+                'strategy': 'random',
+                'nullable': True,
+            },
+        },
+    },
+    
+    # =========================================================================
+    # LEVEL 4: Complex FK (Measurement)
+    # =========================================================================
+    
+    'measurement': {
+        'model': 'measurement.Measurement',
+        'count': 50,
+        'depends_on': ['factory', 'location', 'carrier', 'driver', 'pot', 'pit', 'machine'],
+        'fields': {
+            'dump_date': {'date_range': {'start': '2024-01-01', 'end': '2024-12-31'}},
+            'dump_time': {'time_range': {'start': '06:00:00', 'end': '22:00:00'}},
+            'pit_number': {'type': 'template', 'template': 'P{index}'},
+            'pot_side': {'type': 'choice', 'choices': ['FRONT', 'BACK', 'NONE']},
+            'pot_knocks': {'number_range': {'min': 5, 'max': 25}},
+            'pot_weight_kg': {'number_range': {'min': 800.0, 'max': 1800.0}, 'decimals': 3},
+            'roi_temp_max_c': {'number_range': {'min': 800.0, 'max': 1200.0}, 'decimals': 2},
+            'roi_temp_mean_c': {'number_range': {'min': 700.0, 'max': 1000.0}, 'decimals': 2},
+            'roi_temp_min_c': {'number_range': {'min': 500.0, 'max': 800.0}, 'decimals': 2},
+            'comment': {'type': 'lorem', 'words': 5},
+            # FK fields
+            'factory': {
+                'type': 'fk',
+                'model': 'factory.Factory',
+                'strategy': 'random',
+            },
+            'location': {
+                'type': 'fk',
+                'model': 'location.Location',
+                'strategy': 'random',
+            },
+            'carrier': {
+                'type': 'fk',
+                'model': 'carrier.Carrier',
+                'strategy': 'random',
+            },
+            'driver': {
+                'type': 'fk',
+                'model': 'driver.Driver',
+                'strategy': 'random',
+            },
+            'pot': {
+                'type': 'fk',
+                'model': 'pot.Pot',
+                'strategy': 'random',
+            },
+            'pit': {
+                'type': 'fk',
+                'model': 'pit.Pit',
+                'strategy': 'random',
+                'nullable': True,
+            },
+            'machine': {
+                'type': 'fk',
+                'model': 'machine.Machine',
+                'strategy': 'random',
+                'nullable': True,
+            },
+        },
+    },
+    
+    # =========================================================================
+    # LEVEL 5: Measurement FK (Media)
+    # =========================================================================
     
     'photo': {
         'model': 'photo.Photo',
-        'count': 200,
+        'count': 100,
+        'depends_on': ['measurement'],
         'fields': {
-            'code': {
-                'type': 'template',
-                'template': 'PHOTO-{index:03d}',
-            },
-            'name': {
-                'type': 'template',
-                'template': 'Photo {index}',
-            },
-            'human_id': {
-                'type': 'copy',
-                'from': 'code',
-            },
-            'photo_url': {
-                'type': 'dataset',
-                'dataset': 'photo_url',
-            },
-            'thumbnail_url': {
-                'type': 'dataset',
-                'dataset': 'thumbnail_url',
-            },
-            'width': {
-                'number_range': {'min': 800, 'max': 1920},
-                'step': 16,  # Round to multiples of 16 for better compression
-            },
-            'height': {
-                'aspect_ratio': 16/9,  # Standard 16:9 aspect ratio (will use width from context)
-            },
-            'file_size': {
-                'number_range': {'min': 100000, 'max': 5000000},
-            },
-        },
-        'relations': {
-            'user': {
-                'type': 'per_source',  # Changed from 'random' to 'per_source'
-                'model': 'user.User',
-                'count_per_source': 20,  # 20 photos per user (guaranteed)
-                'required': True,
+            'photo_url': {'type': 'dataset', 'dataset': 'photo_url'},
+            'thumbnail_url': {'type': 'dataset', 'dataset': 'thumbnail_url'},
+            'width': {'number_range': {'min': 640, 'max': 1920}, 'step': 16},
+            'height': {'number_range': {'min': 480, 'max': 1080}, 'step': 16},
+            'file_size': {'number_range': {'min': 100000, 'max': 5000000}},
+            'measurement': {
+                'type': 'fk',
+                'model': 'measurement.Measurement',
+                'strategy': 'round_robin',
             },
         },
     },
     
-    # Example configs showing range support and new datasets:
-    # 'example_with_ranges': {
-    #     'model': 'example.Model',
-    #     'fields': {
-    #         'price': {
-    #             'number_range': {'min': 10.0, 'max': 1000.0},
-    #             'decimals': 2,
-    #             'step': 0.5,
-    #         },
-    #         'quantity': {
-    #             'number_range': {'min': 1, 'max': 100},
-    #             'step': 1,
-    #         },
-    #         'created_date': {
-    #             'date_range': {
-    #                 'start': '2020-01-01',
-    #                 'end': '2024-12-31',
-    #             },
-    #         },
-    #         'work_time': {
-    #             'time_range': {
-    #                 'start': '08:00:00',
-    #                 'end': '17:00:00',
-    #             },
-    #         },
-    #         'email': {
-    #             'type': 'dataset',
-    #             'dataset': 'email',
-    #             # Optional: 'first_name': 'John', 'last_name': 'Doe', 'domain': 'company.com'
-    #         },
-    #         'phone': {
-    #             'type': 'dataset',
-    #             'dataset': 'phone',
-    #             # Optional: 'country': 'Slovakia'
-    #         },
-    #         'country': {
-    #             'type': 'dataset',
-    #             'dataset': 'country',
-    #         },
-    #         'city': {
-    #             'type': 'dataset',
-    #             'dataset': 'city',
-    #         },
-    #         'street': {
-    #             'type': 'dataset',
-    #             'dataset': 'street',
-    #         },
-    #         'postal_code': {
-    #             'type': 'dataset',
-    #             'dataset': 'postal_code',
-    #             # Optional: 'country': 'Slovakia' (for country-specific format)
-    #         },
-    #         'address': {
-    #             'type': 'dataset',
-    #             'dataset': 'address',
-    #             'as_dict': False,  # True for dict, False for string
-    #             # Optional: 'country': 'Slovakia'
-    #         },
-    #     },
-    # },
+    'video': {
+        'model': 'video.Video',
+        'count': 50,
+        'depends_on': ['measurement'],
+        'fields': {
+            'video_url': {'type': 'template', 'template': 'https://videos.example.com/video_{index}.mp4'},
+            'thumbnail_url': {'type': 'dataset', 'dataset': 'thumbnail_url'},
+            'duration': {'number_range': {'min': 5, 'max': 120}},
+            'file_size': {'number_range': {'min': 1000000, 'max': 50000000}},
+            'measurement': {
+                'type': 'fk',
+                'model': 'measurement.Measurement',
+                'strategy': 'round_robin',
+            },
+        },
+    },
 }
 
 

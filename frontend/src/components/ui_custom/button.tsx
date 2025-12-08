@@ -1,0 +1,6 @@
+//*........................................................
+//*       www/thermal_eye_ui/src/components/ui_custom/button.tsx
+//*       Re-exports Button from shadcn/ui (with solid and danger variants)
+//*........................................................
+
+export * from '@/components/ui/button'

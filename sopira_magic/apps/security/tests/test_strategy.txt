@@ -1,0 +1,890 @@
+Testovacia stratégia:
+
+text
+tests/security/
+├── __init__.py
+├── conftest.py                    # Test fixtures a pomocné funkcie
+├── factories.py                   # Test data factories
+├── test_registry.py              # Registry unit tests
+├── test_types.py                 # Type definitions tests
+├── test_config.py               # ✅ SSOT Configuration tests
+├── test_engine.py               # Engine unit tests
+├── test_validators/
+│   ├── test_cors.py
+│   ├── test_csrf.py
+│   ├── test_ssl.py
+│   ├── test_headers.py
+│   └── test_csp.py
+├── test_middleware.py           # Middleware tests
+├── test_decorators.py           # Decorators tests
+├── test_monitoring.py           # Monitoring tests
+├── test_integration.py          # Integration tests
+└── test_management.py           # Management commands tests
+📁 tests/security/test_config.py - SSOT Configuration Tests
+
+python
+"""
+Unit tests pre SSOT Security Configuration.
+Testuje správnosť konfigurácie pre všetky environmenty.
+"""
+
+import pytest
+from django.test import TestCase
+from typing import Dict, List
+
+from apps.security.types import EnvironmentType, SecurityLevel
+from apps.security.config import SECURITY_CONFIG_MATRIX, EnvironmentConfig
+
+
+class TestSecurityConfigSSOT(TestCase):
+    """
+    Testy pre SINGLE SOURCE OF TRUTH - Security Configuration Matrix.
+    Zaisťuje konzistentnosť a správnosť všetkých konfigurácií.
+    """
+    
+    def test_config_matrix_structure(self):
+        """Test že konfiguračná matica má správnu štruktúru."""
+        # Overenie že máme všetky environmenty
+        expected_envs = [EnvironmentType.LOCAL, EnvironmentType.DEVELOPMENT, 
+                        EnvironmentType.PRODUCTION, EnvironmentType.CLOUD]
+        
+        for env in expected_envs:
+            assert env in SECURITY_CONFIG_MATRIX, f"Missing config for {env}"
+            
+            config = SECURITY_CONFIG_MATRIX[env]
+            
+            # Overenie povinných polí
+            required_fields = ['name', 'env_type', 'security_level', 'force_https',
+                             'allowed_hosts', 'cors', 'csp', 'ssl', 'headers']
+            
+            for field in required_fields:
+                assert field in config, f"Missing field {field} in {env} config"
+    
+    def test_local_development_config(self):
+        """Test konfigurácie pre lokálny vývoj."""
+        config = SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL]
+        
+        assert config['name'] == "Local Development"
+        assert config['env_type'] == EnvironmentType.LOCAL
+        assert config['security_level'] == SecurityLevel.MINIMAL
+        assert config['force_https'] is False
+        
+        # CORS testy
+        cors = config['cors']
+        assert 'http://localhost:5173' in cors['allowed_origins']
+        assert 'http://127.0.0.1:5173' in cors['allowed_origins']
+        assert cors['allow_credentials'] is True
+        
+        # SSL testy
+        ssl = config['ssl']
+        assert ssl['enabled'] is False
+        assert ssl['redirect_http'] is False
+        assert ssl['hsts_max_age'] == 0
+        
+        # CSP testy
+        csp = config['csp']
+        assert "'unsafe-inline'" in csp['script_src']
+        assert "'unsafe-eval'" in csp['script_src']
+        assert "ws://localhost:*" in csp['connect_src']
+    
+    def test_development_config(self):
+        """Test konfigurácie pre dev server."""
+        config = SECURITY_CONFIG_MATRIX[EnvironmentType.DEVELOPMENT]
+        
+        assert config['name'] == "Development Server"
+        assert config['env_type'] == EnvironmentType.DEVELOPMENT
+        assert config['security_level'] == SecurityLevel.STANDARD
+        assert config['force_https'] is True
+        
+        # Overenie allowed hosts
+        allowed_hosts = config['allowed_hosts']
+        assert 'dev.thermal-eye.sopira.com' in allowed_hosts
+        assert '138.199.224.196' in allowed_hosts
+        
+        # SSL testy
+        ssl = config['ssl']
+        assert ssl['enabled'] is True
+        assert ssl['redirect_http'] is True
+        assert ssl['hsts_max_age'] == 31536000
+        assert ssl['certificate_provider'] == 'letsencrypt'
+        assert ssl['auto_renew'] is True
+    
+    def test_production_config(self):
+        """Test konfigurácie pre produkciu."""
+        config = SECURITY_CONFIG_MATRIX[EnvironmentType.PRODUCTION]
+        
+        assert config['name'] == "Production"
+        assert config['env_type'] == EnvironmentType.PRODUCTION
+        assert config['security_level'] == SecurityLevel.STRICT
+        assert config['force_https'] is True
+        
+        # CORS testy - produkcia má striktné povolené origins
+        cors = config['cors']
+        assert len(cors['allowed_origins']) == 2  # Len 2 povolené origins
+        assert 'https://thermal-eye.sopira.com' in cors['allowed_origins']
+        assert 'http://' not in str(cors['allowed_origins'])  # Žiadne HTTP
+        
+        # CSP testy - produkcia má striktné CSP
+        csp = config['csp']
+        assert "'unsafe-inline'" not in csp['script_src']
+        assert "'unsafe-eval'" not in csp['script_src']
+        assert "'self'" in csp['script_src']  # Len self
+        
+        # SSL testy
+        ssl = config['ssl']
+        assert ssl['hsts_preload'] is True
+        assert ssl['renew_before_days'] == 30
+    
+    def test_cloud_config(self):
+        """Test konfigurácie pre cloud (Render)."""
+        config = SECURITY_CONFIG_MATRIX[EnvironmentType.CLOUD]
+        
+        assert config['name'] == "Cloud Deployment (Render)"
+        assert config['env_type'] == EnvironmentType.CLOUD
+        assert config['security_level'] == SecurityLevel.STRICT
+        
+        # Cloud specific testy
+        allowed_hosts = config['allowed_hosts']
+        assert 'thermal-eye.onrender.com' in allowed_hosts
+        assert '*.onrender.com' in allowed_hosts
+        
+        # SSL testy pre Render
+        ssl = config['ssl']
+        assert ssl['certificate_provider'] == 'render'
+    
+    def test_security_level_progression(self):
+        """Test progresie security levels medzi environmentami."""
+        security_levels = {
+            EnvironmentType.LOCAL: SecurityLevel.MINIMAL,
+            EnvironmentType.DEVELOPMENT: SecurityLevel.STANDARD,
+            EnvironmentType.PRODUCTION: SecurityLevel.STRICT,
+            EnvironmentType.CLOUD: SecurityLevel.STRICT,
+        }
+        
+        for env_type, expected_level in security_levels.items():
+            config = SECURITY_CONFIG_MATRIX[env_type]
+            assert config['security_level'] == expected_level, \
+                f"{env_type} should have {expected_level} security level"
+    
+    def test_cors_config_consistency(self):
+        """Test konzistencie CORS konfigurácie."""
+        for env_type, config in SECURITY_CONFIG_MATRIX.items():
+            cors = config['cors']
+            
+            # Všetky CORS konfigurácie musia mať tieto polia
+            required_cors_fields = ['allowed_origins', 'allowed_methods', 
+                                  'allow_credentials', 'max_age']
+            
+            for field in required_cors_fields:
+                assert field in cors, f"Missing CORS field {field} in {env_type}"
+            
+            # Max age musí byť kladné číslo
+            assert cors['max_age'] > 0, f"Invalid max_age in {env_type}"
+            
+            # Ak je HTTPS vynútené, origins by mali byť HTTPS
+            if config['force_https']:
+                for origin in cors['allowed_origins']:
+                    if origin.startswith('http://') and 'localhost' not in origin:
+                        pytest.fail(f"HTTP origin in HTTPS environment {env_type}: {origin}")
+    
+    def test_ssl_config_consistency(self):
+        """Test konzistencie SSL konfigurácie."""
+        for env_type, config in SECURITY_CONFIG_MATRIX.items():
+            ssl = config['ssl']
+            
+            # Všetky SSL konfigurácie musia mať tieto polia
+            required_ssl_fields = ['enabled', 'redirect_http', 'hsts_max_age',
+                                 'certificate_provider', 'auto_renew', 'renew_before_days']
+            
+            for field in required_ssl_fields:
+                assert field in ssl, f"Missing SSL field {field} in {env_type}"
+            
+            # Ak je SSL enabled, redirect_http musí byť True
+            if ssl['enabled']:
+                assert ssl['redirect_http'] is True, \
+                    f"SSL enabled but redirect_http=False in {env_type}"
+                
+                # HSTS musí mať pozitívny max_age
+                assert ssl['hsts_max_age'] > 0, \
+                    f"SSL enabled but HSTS max_age=0 in {env_type}"
+    
+    @pytest.mark.parametrize("env_type", [
+        EnvironmentType.LOCAL,
+        EnvironmentType.DEVELOPMENT,
+        EnvironmentType.PRODUCTION,
+        EnvironmentType.CLOUD,
+    ])
+    def test_allowed_hosts_not_empty(self, env_type):
+        """Test že allowed_hosts nie je prázdne pre žiadny environment."""
+        config = SECURITY_CONFIG_MATRIX[env_type]
+        allowed_hosts = config['allowed_hosts']
+        
+        assert isinstance(allowed_hosts, list)
+        assert len(allowed_hosts) > 0, f"Empty allowed_hosts for {env_type}"
+        
+        # Overenie že nie sú prázdne stringy
+        for host in allowed_hosts:
+            assert host.strip() != "", f"Empty string in allowed_hosts for {env_type}"
+    
+    def test_csp_config_for_all_environments(self):
+        """Test CSP konfigurácie pre všetky environmenty."""
+        for env_type, config in SECURITY_CONFIG_MATRIX.items():
+            csp = config['csp']
+            
+            # Minimálne CSP polia
+            required_csp_fields = ['default_src', 'script_src', 'style_src']
+            
+            for field in required_csp_fields:
+                assert field in csp, f"Missing CSP field {field} in {env_type}"
+                assert isinstance(csp[field], list), \
+                    f"CSP field {field} must be list in {env_type}"
+                assert len(csp[field]) > 0, \
+                    f"Empty CSP {field} in {env_type}"
+            
+            # default-src musí obsahovať 'self'
+            assert "'self'" in csp['default_src'], \
+                f"Missing 'self' in default_src for {env_type}"
+            
+            # object-src a frame-src by mali byť 'none' pre bezpečnosť
+            if 'object_src' in csp:
+                assert "'none'" in csp['object_src'], \
+                    f"object_src should contain 'none' in {env_type}"
+            
+            if 'frame_src' in csp:
+                assert "'none'" in csp['frame_src'], \
+                    f"frame_src should contain 'none' in {env_type}"
+    
+    def test_headers_config_consistency(self):
+        """Test konzistencie security headers."""
+        for env_type, config in SECURITY_CONFIG_MATRIX.items():
+            headers = config['headers']
+            
+            # Minimálne headers
+            required_headers = ['x_frame_options', 'x_content_type_options']
+            
+            for header in required_headers:
+                assert header in headers, f"Missing header {header} in {env_type}"
+                assert headers[header], f"Empty header {header} in {env_type}"
+            
+            # X-Frame-Options musí byť DENY alebo SAMEORIGIN
+            valid_frame_options = ['DENY', 'SAMEORIGIN']
+            assert headers['x_frame_options'] in valid_frame_options, \
+                f"Invalid X-Frame-Options in {env_type}: {headers['x_frame_options']}"
+            
+            # X-Content-Type-Options musí byť nosniff
+            assert headers['x_content_type_options'] == 'nosniff', \
+                f"Invalid X-Content-Type-Options in {env_type}"
+    
+    def test_config_immutability(self):
+        """Test že konfigurácia je immutable (nesmie sa meniť)."""
+        import copy
+        
+        original_config = copy.deepcopy(SECURITY_CONFIG_MATRIX)
+        
+        # Pokús sa zmeniť konfiguráciu
+        try:
+            SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL]['name'] = "Modified"
+        except TypeError:
+            # To je dobre - konfigurácia by mala byť immutable
+            pass
+        
+        # Overenie že sa nič nezmenilo
+        assert SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL]['name'] == "Local Development"
+    
+    def test_environment_specific_rules(self):
+        """Test environment-specific business rules."""
+        
+        # Lokálny vývoj nemá HTTPS
+        local_config = SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL]
+        assert local_config['force_https'] is False
+        assert local_config['ssl']['enabled'] is False
+        
+        # Vývojové a produkčné prostredia majú HTTPS
+        for env in [EnvironmentType.DEVELOPMENT, EnvironmentType.PRODUCTION, EnvironmentType.CLOUD]:
+            config = SECURITY_CONFIG_MATRIX[env]
+            assert config['force_https'] is True
+            assert config['ssl']['enabled'] is True
+        
+        # Produkcia má najprísnejšie CORS
+        prod_cors = SECURITY_CONFIG_MATRIX[EnvironmentType.PRODUCTION]['cors']
+        assert len(prod_cors['allowed_origins']) <= 2  # Len pár povolených origins
+        
+        # Lokálny vývoj má najlaxnejšie CORS
+        local_cors = SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL]['cors']
+        assert len(local_cors['allowed_origins']) > 2  # Viac origins
+
+
+class TestSecurityConfigEdgeCases(TestCase):
+    """
+    Testy pre edge cases v security konfigurácii.
+    """
+    
+    def test_wildcard_in_allowed_hosts(self):
+        """Test správnosti wildcard v allowed hosts."""
+        cloud_config = SECURITY_CONFIG_MATRIX[EnvironmentType.CLOUD]
+        
+        # Cloud config by mal podporovať wildcard
+        assert '*.onrender.com' in cloud_config['allowed_hosts']
+        
+        # Produkcia by nemala mať wildcard
+        prod_config = SECURITY_CONFIG_MATRIX[EnvironmentType.PRODUCTION]
+        for host in prod_config['allowed_hosts']:
+            assert '*' not in host, f"Wildcard found in production allowed_hosts: {host}"
+    
+    def test_cors_credentials_with_wildcard(self):
+        """
+        Test že CORS withCredentials nie je kombinované s wildcard origin.
+        Toto je security anti-pattern.
+        """
+        for env_type, config in SECURITY_CONFIG_MATRIX.items():
+            cors = config['cors']
+            
+            if cors['allow_credentials']:
+                # Ak allow_credentials je True, origins nesmú obsahovať wildcard
+                for origin in cors['allowed_origins']:
+                    if '*' in origin:
+                        pytest.fail(
+                            f"CORS allow_credentials=True but wildcard origin in {env_type}: {origin}"
+                        )
+    
+    def test_ssl_renewal_config(self):
+        """Test že SSL renewal konfigurácia je rozumná."""
+        for env_type, config in SECURITY_CONFIG_MATRIX.items():
+            ssl = config['ssl']
+            
+            if ssl['enabled'] and ssl['auto_renew']:
+                # renew_before_days by mal byť medzi 7 a 90 dňami
+                assert 7 <= ssl['renew_before_days'] <= 90, \
+                    f"Unreasonable renew_before_days in {env_type}: {ssl['renew_before_days']}"
+    
+    def test_hsts_configuration(self):
+        """Test HSTS konfigurácie."""
+        for env_type, config in SECURITY_CONFIG_MATRIX.items():
+            ssl = config['ssl']
+            
+            if ssl['enabled']:
+                # HSTS max_age by mal byť minimálne 1 rok v produkcii
+                if env_type in [EnvironmentType.PRODUCTION, EnvironmentType.CLOUD]:
+                    assert ssl['hsts_max_age'] >= 31536000, \
+                        f"HSTS max_age too short for {env_type}: {ssl['hsts_max_age']}"
+                
+                # HSTS preload vyžaduje includeSubDomains
+                if ssl['hsts_preload']:
+                    assert ssl['hsts_include_subdomains'] is True, \
+                        f"HSTS preload requires includeSubDomains in {env_type}"
+
+
+class TestSecurityConfigValidation(TestCase):
+    """
+    Testy pre validáciu konfigurácie.
+    """
+    
+    def test_validate_all_configs(self):
+        """Kompletná validácia všetkých konfigurácií."""
+        from apps.security.validation import validate_security_config
+        
+        errors = validate_security_config()
+        
+        # SSOT konfigurácia musí byť bez chýb
+        assert len(errors) == 0, f"Configuration validation errors: {errors}"
+    
+    def test_environment_type_matching(self):
+        """Test že env_type v konfigurácii zodpovedá kľúču."""
+        for env_type, config in SECURITY_CONFIG_MATRIX.items():
+            assert config['env_type'] == env_type, \
+                f"Config env_type mismatch for {env_type}: {config['env_type']}"
+    
+    def test_no_duplicate_origins(self):
+        """Test že neexistujú duplicitné CORS origins."""
+        for env_type, config in SECURITY_CONFIG_MATRIX.items():
+            origins = config['cors']['allowed_origins']
+            unique_origins = set(origins)
+            
+            assert len(origins) == len(unique_origins), \
+                f"Duplicate origins found in {env_type}: {origins}"
+    
+    def test_csp_directive_values(self):
+        """Test že CSP directive values sú validné."""
+        valid_sources = ["'self'", "'none'", "'unsafe-inline'", "'unsafe-eval'",
+                        "http:", "https:", "data:", "blob:", "ws:", "wss:"]
+        
+        for env_type, config in SECURITY_CONFIG_MATRIX.items():
+            csp = config['csp']
+            
+            for directive, sources in csp.items():
+                for source in sources:
+                    # Skontroluj či je to validný source
+                    if source not in valid_sources and not source.startswith(('http://', 'https://', 'ws://', 'wss://')):
+                        # Môže to byť doména alebo wildcard
+                        if '*' in source:
+                            continue  # Wildcard je OK
+                        elif '.' in source:
+                            continue  # Doména je OK
+                        else:
+                            pytest.fail(f"Invalid CSP source in {env_type}.{directive}: {source}")
+
+
+@pytest.mark.parametrize("env_type,expected_security_level", [
+    (EnvironmentType.LOCAL, SecurityLevel.MINIMAL),
+    (EnvironmentType.DEVELOPMENT, SecurityLevel.STANDARD),
+    (EnvironmentType.PRODUCTION, SecurityLevel.STRICT),
+    (EnvironmentType.CLOUD, SecurityLevel.STRICT),
+])
+def test_security_level_parametrized(env_type, expected_security_level):
+    """Parametrizovaný test security levels."""
+    config = SECURITY_CONFIG_MATRIX[env_type]
+    assert config['security_level'] == expected_security_level
+
+
+class TestSecurityConfigPerformance(TestCase):
+    """
+    Performance testy pre konfiguráciu.
+    """
+    
+    def test_config_access_performance(self):
+        """Test rýchlosti prístupu ku konfigurácii."""
+        import time
+        
+        iterations = 1000
+        start_time = time.time()
+        
+        for _ in range(iterations):
+            config = SECURITY_CONFIG_MATRIX[EnvironmentType.PRODUCTION]
+            _ = config['cors']['allowed_origins']
+            _ = config['ssl']['enabled']
+        
+        elapsed_time = time.time() - start_time
+        avg_time = elapsed_time / iterations
+        
+        # Prístup ku konfigurácii by mal byť rýchly (< 0.1ms)
+        assert avg_time < 0.0001, f"Config access too slow: {avg_time * 1000:.2f}ms"
+    
+    def test_config_memory_usage(self):
+        """Test že konfigurácia nemá memory leak."""
+        import sys
+        
+        initial_refs = sys.getrefcount(SECURITY_CONFIG_MATRIX)
+        
+        # Vytvor veľa referencií
+        configs = []
+        for _ in range(1000):
+            configs.append(SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL])
+        
+        current_refs = sys.getrefcount(SECURITY_CONFIG_MATRIX)
+        
+        # Počet referencií by mal byť rozumný
+        assert current_refs < initial_refs + 1100, "Possible memory leak in config"
+📁 tests/security/test_validation.py - SSOT Validation Tests
+
+python
+"""
+Unit tests pre SSOT validation.
+"""
+
+import pytest
+from unittest.mock import patch, Mock
+from django.test import TestCase
+
+from apps.security.validation import validate_security_config
+from apps.security.config import SECURITY_CONFIG_MATRIX, EnvironmentType
+
+
+class TestSecurityConfigValidation(TestCase):
+    """
+    Testy pre validáciu SSOT security konfigurácie.
+    """
+    
+    def test_validate_empty_config(self):
+        """Test validácie s prázdnou konfiguráciou."""
+        with patch('apps.security.validation.SECURITY_CONFIG_MATRIX', {}):
+            errors = validate_security_config()
+            assert len(errors) > 0
+            assert "No environment configurations" in str(errors)
+    
+    def test_validate_missing_required_fields(self):
+        """Test validácie s chýbajúcimi povinnými poľami."""
+        invalid_config = {
+            EnvironmentType.LOCAL: {
+                'name': 'Test',
+                # Chýbajú ostatné povinné polia
+            }
+        }
+        
+        with patch('apps.security.validation.SECURITY_CONFIG_MATRIX', invalid_config):
+            errors = validate_security_config()
+            assert len(errors) > 0
+            assert "Missing required field" in str(errors)
+    
+    def test_validate_invalid_security_level(self):
+        """Test validácie s neplatným security level."""
+        invalid_config = {
+            EnvironmentType.LOCAL: {
+                **SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL],
+                'security_level': 'INVALID_LEVEL'
+            }
+        }
+        
+        with patch('apps.security.validation.SECURITY_CONFIG_MATRIX', invalid_config):
+            errors = validate_security_config()
+            assert len(errors) > 0
+            assert "Invalid security level" in str(errors)
+    
+    def test_validate_invalid_environment_type(self):
+        """Test validácie s nezhodujúcim sa environment type."""
+        invalid_config = {
+            EnvironmentType.LOCAL: {
+                **SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL],
+                'env_type': EnvironmentType.PRODUCTION  # Nesedí s kľúčom
+            }
+        }
+        
+        with patch('apps.security.validation.SECURITY_CONFIG_MATRIX', invalid_config):
+            errors = validate_security_config()
+            assert len(errors) > 0
+            assert "does not match key" in str(errors)
+    
+    def test_validate_cors_credentials_with_wildcard(self):
+        """Test validácie CORS credentials s wildcard."""
+        invalid_config = {
+            EnvironmentType.LOCAL: {
+                **SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL],
+                'cors': {
+                    **SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL]['cors'],
+                    'allow_credentials': True,
+                    'allowed_origins': ['*']  # Wildcard s credentials
+                }
+            }
+        }
+        
+        with patch('apps.security.validation.SECURITY_CONFIG_MATRIX', invalid_config):
+            errors = validate_security_config()
+            assert len(errors) > 0
+            assert "CORS allow_credentials with wildcard" in str(errors)
+    
+    def test_validate_ssl_configuration(self):
+        """Test validácie SSL konfigurácie."""
+        # Test s neplatným HSTS max_age
+        invalid_config = {
+            EnvironmentType.LOCAL: {
+                **SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL],
+                'ssl': {
+                    **SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL]['ssl'],
+                    'enabled': True,
+                    'hsts_max_age': -1  # Neplatný
+                }
+            }
+        }
+        
+        with patch('apps.security.validation.SECURITY_CONFIG_MATRIX', invalid_config):
+            errors = validate_security_config()
+            assert len(errors) > 0
+            assert "Invalid HSTS max_age" in str(errors)
+    
+    def test_validate_csp_configuration(self):
+        """Test validácie CSP konfigurácie."""
+        # Test s prázdnym CSP
+        invalid_config = {
+            EnvironmentType.LOCAL: {
+                **SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL],
+                'csp': {
+                    'default_src': []  # Prázdne
+                }
+            }
+        }
+        
+        with patch('apps.security.validation.SECURITY_CONFIG_MATRIX', invalid_config):
+            errors = validate_security_config()
+            assert len(errors) > 0
+            assert "CSP default_src cannot be empty" in str(errors)
+    
+    def test_validate_duplicate_origins(self):
+        """Test validácie duplicitných origins."""
+        invalid_config = {
+            EnvironmentType.LOCAL: {
+                **SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL],
+                'cors': {
+                    **SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL]['cors'],
+                    'allowed_origins': [
+                        'http://localhost:5173',
+                        'http://localhost:5173'  # Duplicitné
+                    ]
+                }
+            }
+        }
+        
+        with patch('apps.security.validation.SECURITY_CONFIG_MATRIX', invalid_config):
+            errors = validate_security_config()
+            assert len(errors) > 0
+            assert "Duplicate CORS origin" in str(errors)
+    
+    def test_validate_successful_configuration(self):
+        """Test úspešnej validácie platnej konfigurácie."""
+        errors = validate_security_config()
+        assert len(errors) == 0, f"Valid configuration should have no errors: {errors}"
+    
+    def test_validate_all_environments_present(self):
+        """Test že sú prítomné všetky environmenty."""
+        errors = validate_security_config()
+        
+        # Skontroluj každý environment
+        for env_type in EnvironmentType:
+            if env_type not in SECURITY_CONFIG_MATRIX:
+                pytest.fail(f"Missing configuration for environment: {env_type}")
+📁 tests/security/conftest.py - Test Fixtures
+
+python
+"""
+Test fixtures pre Security Module.
+"""
+
+import pytest
+from unittest.mock import Mock, patch
+from django.http import HttpRequest
+
+from apps.security.types import EnvironmentType, SecurityLevel
+
+
+@pytest.fixture
+def mock_request():
+    """Vytvor mock Django request."""
+    request = Mock(spec=HttpRequest)
+    request.method = 'GET'
+    request.META = {}
+    request.is_secure.return_value = False
+    request.get_host.return_value = 'localhost:8000'
+    request.get_full_path.return_value = '/api/test/'
+    return request
+
+
+@pytest.fixture
+def mock_https_request():
+    """Vytvor mock HTTPS request."""
+    request = Mock(spec=HttpRequest)
+    request.method = 'GET'
+    request.META = {}
+    request.is_secure.return_value = True
+    request.get_host.return_value = 'thermal-eye.sopira.com'
+    request.get_full_path.return_value = '/api/test/'
+    return request
+
+
+@pytest.fixture
+def mock_request_with_origin():
+    """Vytvor mock request s origin header."""
+    request = Mock(spec=HttpRequest)
+    request.method = 'GET'
+    request.META = {
+        'HTTP_ORIGIN': 'http://localhost:5173'
+    }
+    request.is_secure.return_value = False
+    request.get_host.return_value = 'localhost:8000'
+    return request
+
+
+@pytest.fixture
+def local_environment_config():
+    """Vráti konfiguráciu pre lokálny vývoj."""
+    from apps.security.config import SECURITY_CONFIG_MATRIX
+    return SECURITY_CONFIG_MATRIX[EnvironmentType.LOCAL]
+
+
+@pytest.fixture
+def production_environment_config():
+    """Vráti konfiguráciu pre produkciu."""
+    from apps.security.config import SECURITY_CONFIG_MATRIX
+    return SECURITY_CONFIG_MATRIX[EnvironmentType.PRODUCTION]
+
+
+@pytest.fixture
+def mock_environment_detector():
+    """Vytvor mock environment detector."""
+    def detector(request=None):
+        return 'local'
+    return detector
+
+
+@pytest.fixture
+def mock_certificate_provider():
+    """Vytvor mock certificate provider."""
+    def provider(action, domain=None):
+        return {
+            'valid': True,
+            'domain': domain or 'thermal-eye.sopira.com',
+            'days_remaining': 365,
+            'issuer': 'Let\'s Encrypt'
+        }
+    return provider
+
+
+@pytest.fixture
+def security_engine_with_mocks(mock_environment_detector, mock_certificate_provider):
+    """Vytvor SecurityEngine s mock registry."""
+    from apps.security.registry import (
+        register_environment_detector,
+        register_certificate_provider
+    )
+    
+    # Register mocks
+    register_environment_detector(mock_environment_detector)
+    register_certificate_provider(mock_certificate_provider)
+    
+    from apps.security.engine import SecurityEngine
+    return SecurityEngine
+
+
+@pytest.fixture(params=[EnvironmentType.LOCAL, EnvironmentType.PRODUCTION])
+def environment_config(request):
+    """Parametrizovaný fixture pre environment konfigurácie."""
+    from apps.security.config import SECURITY_CONFIG_MATRIX
+    return SECURITY_CONFIG_MATRIX[request.param]
+
+
+@pytest.fixture
+def all_environment_configs():
+    """Vráti všetky environment konfigurácie."""
+    from apps.security.config import SECURITY_CONFIG_MATRIX
+    return SECURITY_CONFIG_MATRIX
+📁 tests/security/factories.py - Test Data Factories
+
+python
+"""
+Test data factories pre Security Module.
+"""
+
+import factory
+from typing import Dict, List
+from apps.security.types import EnvironmentType, SecurityLevel
+
+
+class SecurityConfigFactory:
+    """
+    Factory pre vytváranie testovacích security konfigurácií.
+    """
+    
+    @staticmethod
+    def create_local_config() -> Dict:
+        """Vytvor lokálnu konfiguráciu."""
+        return {
+            "name": "Local Development",
+            "env_type": EnvironmentType.LOCAL,
+            "security_level": SecurityLevel.MINIMAL,
+            "force_https": False,
+            "allowed_hosts": ["localhost", "127.0.0.1"],
+            "cors": {
+                "allowed_origins": ["http://localhost:5173"],
+                "allowed_methods": ["GET", "POST"],
+                "allowed_headers": ["*"],
+                "allow_credentials": True,
+                "max_age": 86400,
+            },
+            "csp": {
+                "default_src": ["'self'"],
+                "script_src": ["'self'", "'unsafe-inline'"],
+            },
+            "ssl": {
+                "enabled": False,
+                "redirect_http": False,
+                "hsts_max_age": 0,
+                "hsts_include_subdomains": False,
+                "hsts_preload": False,
+                "certificate_provider": "none",
+                "auto_renew": False,
+                "renew_before_days": 30,
+            },
+            "headers": {
+                "x_frame_options": "DENY",
+                "x_content_type_options": "nosniff",
+            }
+        }
+    
+    @staticmethod
+    def create_production_config() -> Dict:
+        """Vytvor produkčnú konfiguráciu."""
+        return {
+            "name": "Production",
+            "env_type": EnvironmentType.PRODUCTION,
+            "security_level": SecurityLevel.STRICT,
+            "force_https": True,
+            "allowed_hosts": ["thermal-eye.sopira.com"],
+            "cors": {
+                "allowed_origins": ["https://thermal-eye.sopira.com"],
+                "allowed_methods": ["GET", "POST", "PUT", "DELETE"],
+                "allowed_headers": ["Authorization", "Content-Type"],
+                "allow_credentials": True,
+                "max_age": 86400,
+            },
+            "csp": {
+                "default_src": ["'self'"],
+                "script_src": ["'self'"],
+                "style_src": ["'self'"],
+            },
+            "ssl": {
+                "enabled": True,
+                "redirect_http": True,
+                "hsts_max_age": 31536000,
+                "hsts_include_subdomains": True,
+                "hsts_preload": True,
+                "certificate_provider": "letsencrypt",
+                "auto_renew": True,
+                "renew_before_days": 30,
+            },
+            "headers": {
+                "x_frame_options": "DENY",
+                "x_content_type_options": "nosniff",
+                "x_xss_protection": "1; mode=block",
+                "referrer_policy": "strict-origin-when-cross-origin",
+            }
+        }
+    
+    @staticmethod
+    def create_invalid_config() -> Dict:
+        """Vytvor neplatnú konfiguráciu pre testovanie validácie."""
+        return {
+            "name": "Invalid Config",
+            # Chýbajú povinné polia
+        }
+    
+    @staticmethod
+    def create_cors_config_with_wildcard() -> Dict:
+        """Vytvor CORS config s wildcard (nebezpečné s credentials)."""
+        return {
+            "allowed_origins": ["*"],
+            "allowed_methods": ["*"],
+            "allowed_headers": ["*"],
+            "allow_credentials": True,  # Toto je security issue!
+            "max_age": 86400,
+        }
+
+
+class RequestFactory:
+    """
+    Factory pre vytváranie testovacích requestov.
+    """
+    
+    @staticmethod
+    def create_request(
+        method='GET',
+        host='localhost:8000',
+        secure=False,
+        origin=None,
+        headers=None
+    ):
+        """Vytvor mock Django request."""
+        from unittest.mock import Mock
+        
+        request = Mock()
+        request.method = method
+        request.get_host.return_value = host
+        request.is_secure.return_value = secure
+        request.get_full_path.return_value = '/api/test/'
+        
+        meta = {}
+        if origin:
+            meta['HTTP_ORIGIN'] = origin
+        
+        if headers:
+            for key, value in headers.items():
+                meta[f'HTTP_{key.upper().replace("-", "_")}'] = value
+        
+        request.META = meta
+        return request

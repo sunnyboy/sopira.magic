@@ -210,7 +210,7 @@ class GeneratorService:
                         tags = generate_tags(tags_config.get('count'))
                         # Add tags via tag app if available
                         try:
-                            from sopira_magic.apps.tag.models import Tag, TaggedItem
+                            from sopira_magic.apps.m_tag.models import Tag, TaggedItem
                             from django.contrib.contenttypes.models import ContentType
                             for tag_name in tags:
                                 tag, _ = Tag.objects.get_or_create(name=tag_name)
@@ -586,7 +586,7 @@ class GeneratorService:
             if user:
                 related_obj = user
             else:
-                from sopira_magic.apps.user.models import User
+                from sopira_magic.apps.m_user.models import User
                 related_obj = User.objects.first()
             
             if related_obj:
@@ -660,7 +660,7 @@ class GeneratorService:
     def generate_seed_data(user=None) -> Dict[str, int]:
         """
         Generate seed data for all configured models.
-        Respects dependencies - generates in correct order.
+        Respects dependencies via 'depends_on' config - generates in correct order.
         
         Returns:
             Dictionary with counts of created objects per model
@@ -670,21 +670,11 @@ class GeneratorService:
         
         logger.info(f"[GENERATOR] generate_seed_data START")
         
-        from sopira_magic.apps.relation.config import RELATION_CONFIG
-        
-        # Build dependency graph
+        # Build dependency graph from 'depends_on' in config
         dependencies = {}
         for key, config in get_all_generator_configs().items():
-            model_path = config.get('model')
-            deps = []
-            relations = config.get('relations', {})
-            for rel_config in relations.values():
-                target_model = rel_config.get('model')
-                # Find which generator config creates this model
-                for dep_key, dep_config in get_all_generator_configs().items():
-                    if dep_config.get('model') == target_model:
-                        deps.append(dep_key)
-                        break
+            # Use explicit depends_on if defined, otherwise empty list
+            deps = config.get('depends_on', [])
             dependencies[key] = deps
         
         logger.info(f"[GENERATOR] Dependency graph: {dependencies}")

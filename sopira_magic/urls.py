@@ -21,11 +21,19 @@
    - Authentication endpoints separated under /api/auth/
 """
 
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path, include
+
+from sopira_magic.apps.pdfviewer.config import PDF_DEV_ROOT
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('sopira_magic.apps.authentification.urls')),
     path('api/', include('sopira_magic.apps.api.urls')),
 ]
+
+# Serve development PDF documents from the pdfviewer app when running locally.
+if settings.DEBUG:
+    urlpatterns += static("/pdfdev/", document_root=PDF_DEV_ROOT)

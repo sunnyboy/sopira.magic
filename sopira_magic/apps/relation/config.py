@@ -78,6 +78,202 @@ RELATION_CONFIG = {
         'on_delete': 'PROTECT',
         'description': 'User owns multiple photos',
     },
+    
+    # =====================================================================
+    # Thermal Eye Relations (migrated from Thermal Eye)
+    # =====================================================================
+    
+    # Factory O2M User (Factory.created_by - user who created the factory)
+    'factory_user': {
+        'source': 'm_user.User',
+        'target': 'm_factory.Factory',
+        'type': 'ForeignKey',
+        'field_name': 'created_by',
+        'related_name': 'factories',
+        'on_delete': 'PROTECT',
+        'description': 'User created multiple factories',
+    },
+    
+    # Factory O2M Location (Factory has many locations)
+    'location_factory': {
+        'source': 'm_factory.Factory',
+        'target': 'm_location.Location',
+        'type': 'ForeignKey',
+        'field_name': 'factory',
+        'related_name': 'locations',
+        'on_delete': 'PROTECT',
+        'description': 'Factory has multiple locations',
+    },
+    
+    # Factory O2M Carrier (Factory has many carriers)
+    'carrier_factory': {
+        'source': 'm_factory.Factory',
+        'target': 'm_carrier.Carrier',
+        'type': 'ForeignKey',
+        'field_name': 'factory',
+        'related_name': 'carriers',
+        'on_delete': 'PROTECT',
+        'description': 'Factory has multiple carriers',
+    },
+    
+    # Factory O2M Driver (Factory has many drivers)
+    'driver_factory': {
+        'source': 'm_factory.Factory',
+        'target': 'm_driver.Driver',
+        'type': 'ForeignKey',
+        'field_name': 'factory',
+        'related_name': 'drivers',
+        'on_delete': 'PROTECT',
+        'description': 'Factory has multiple drivers',
+    },
+    
+    # Factory O2M Pot (Factory has many pots)
+    'pot_factory': {
+        'source': 'm_factory.Factory',
+        'target': 'm_pot.Pot',
+        'type': 'ForeignKey',
+        'field_name': 'factory',
+        'related_name': 'pots',
+        'on_delete': 'PROTECT',
+        'description': 'Factory has multiple pots',
+    },
+    
+    # Factory O2M Pit (Factory has many pits)
+    'pit_factory': {
+        'source': 'm_factory.Factory',
+        'target': 'm_pit.Pit',
+        'type': 'ForeignKey',
+        'field_name': 'factory',
+        'related_name': 'pits',
+        'on_delete': 'PROTECT',
+        'description': 'Factory has multiple pits',
+    },
+    
+    # Location O2M Pit (Location has many pits)
+    'pit_location': {
+        'source': 'm_location.Location',
+        'target': 'm_pit.Pit',
+        'type': 'ForeignKey',
+        'field_name': 'location',
+        'related_name': 'pits',
+        'on_delete': 'PROTECT',
+        'description': 'Location has multiple pits',
+        'nullable': True,
+    },
+    
+    # Factory O2M Machine (Factory has many machines)
+    'machine_factory': {
+        'source': 'm_factory.Factory',
+        'target': 'm_machine.Machine',
+        'type': 'ForeignKey',
+        'field_name': 'factory',
+        'related_name': 'machines',
+        'on_delete': 'PROTECT',
+        'description': 'Factory has multiple machines',
+    },
+    
+    # Factory O2M Camera (Factory has many cameras)
+    'camera_factory': {
+        'source': 'm_factory.Factory',
+        'target': 'm_camera.Camera',
+        'type': 'ForeignKey',
+        'field_name': 'factory',
+        'related_name': 'cameras',
+        'on_delete': 'SET_NULL',
+        'description': 'Factory has multiple cameras',
+        'nullable': True,
+    },
+    
+    # Location O2M Camera (Location has many cameras)
+    'camera_location': {
+        'source': 'm_location.Location',
+        'target': 'm_camera.Camera',
+        'type': 'ForeignKey',
+        'field_name': 'location',
+        'related_name': 'cameras',
+        'on_delete': 'SET_NULL',
+        'description': 'Location has multiple cameras',
+        'nullable': True,
+    },
+    
+    # Factory O2M Measurement (Factory has many measurements)
+    'measurement_factory': {
+        'source': 'm_factory.Factory',
+        'target': 'm_measurement.Measurement',
+        'type': 'ForeignKey',
+        'field_name': 'factory',
+        'related_name': 'measurements',
+        'on_delete': 'PROTECT',
+        'description': 'Factory has multiple measurements',
+    },
+    
+    # Location O2M Measurement (Location has many measurements)
+    'measurement_location': {
+        'source': 'm_location.Location',
+        'target': 'm_measurement.Measurement',
+        'type': 'ForeignKey',
+        'field_name': 'location',
+        'related_name': 'measurements',
+        'on_delete': 'PROTECT',
+        'description': 'Location has multiple measurements',
+    },
+    
+    # Carrier O2M Measurement (Carrier has many measurements)
+    'measurement_carrier': {
+        'source': 'm_carrier.Carrier',
+        'target': 'm_measurement.Measurement',
+        'type': 'ForeignKey',
+        'field_name': 'carrier',
+        'related_name': 'measurements',
+        'on_delete': 'PROTECT',
+        'description': 'Carrier has multiple measurements',
+    },
+    
+    # Driver O2M Measurement (Driver has many measurements)
+    'measurement_driver': {
+        'source': 'm_driver.Driver',
+        'target': 'm_measurement.Measurement',
+        'type': 'ForeignKey',
+        'field_name': 'driver',
+        'related_name': 'measurements',
+        'on_delete': 'PROTECT',
+        'description': 'Driver has multiple measurements',
+    },
+    
+    # Pot O2M Measurement (Pot has many measurements)
+    'measurement_pot': {
+        'source': 'm_pot.Pot',
+        'target': 'm_measurement.Measurement',
+        'type': 'ForeignKey',
+        'field_name': 'pot',
+        'related_name': 'measurements',
+        'on_delete': 'PROTECT',
+        'description': 'Pot has multiple measurements',
+    },
+    
+    # Pit O2M Measurement (Pit has many measurements)
+    'measurement_pit': {
+        'source': 'm_pit.Pit',
+        'target': 'm_measurement.Measurement',
+        'type': 'ForeignKey',
+        'field_name': 'pit',
+        'related_name': 'measurements',
+        'on_delete': 'PROTECT',
+        'description': 'Pit has multiple measurements',
+        'nullable': True,
+    },
+    
+    # Machine O2M Measurement (Machine has many measurements)
+    'measurement_machine': {
+        'source': 'm_machine.Machine',
+        'target': 'm_measurement.Measurement',
+        'type': 'ForeignKey',
+        'field_name': 'machine',
+        'related_name': 'measurements',
+        'on_delete': 'PROTECT',
+        'description': 'Machine has multiple measurements',
+        'nullable': True,
+    },
 }
 
 

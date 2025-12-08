@@ -49,7 +49,7 @@
 
 from django.core.management.base import BaseCommand, CommandError
 from sopira_magic.apps.generator.services import GeneratorService
-from sopira_magic.apps.user.models import User
+from sopira_magic.apps.m_user.models import User
 
 
 class Command(BaseCommand):

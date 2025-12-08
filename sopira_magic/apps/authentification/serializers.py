@@ -5,67 +5,82 @@
 #..............................................................
 
 """
-Authentication Serializers - DRF Serializers.
+Authentication Serializers - Config-Driven DRF Serializers.
 
-   Django REST Framework serializers for authentication endpoints.
-   Handles validation and serialization for user registration, login, and password operations.
+Django REST Framework serializers for authentication endpoints.
+All validators use AUTH_CONFIG instead of hardcoded rules.
 
-   Serializers:
+Serializers:
+- UserRegistrationSerializer: Config-driven user registration
+- LoginSerializer: Config-driven login validation
+- PasswordResetSerializer: Config-driven password reset request
+- PasswordResetConfirmSerializer: Config-driven password reset confirmation
+- TwoFactorSerializer: Config-driven 2FA verification
 
-   1. UserRegistrationSerializer
-      - Fields: username, email, password, password_confirm, first_name, last_name
-      - Validates password match and strength
-      - Creates user with hashed password
-
-   2. LoginSerializer
-      - Fields: username, password
-      - Validates credentials
-
-   3. PasswordResetSerializer
-      - Fields: email
-      - Initiates password reset process
-
-   4. PasswordResetConfirmSerializer
-      - Fields: uid, token, password, password_confirm
-      - Validates token and resets password
-      - Requires uid (base64-encoded user ID) and token from password reset email
-
-   5. TwoFactorSerializer
-      - Fields: code
-      - Validates 2FA verification code
-
-   Usage:
-   ```python
-   from sopira_magic.apps.authentification.serializers import UserRegistrationSerializer
-   serializer = UserRegistrationSerializer(data=request.data)
-   if serializer.is_valid():
-       user = serializer.save()
-   ```
+Usage:
+```python
+from sopira_magic.apps.authentification.serializers import UserRegistrationSerializer
+serializer = UserRegistrationSerializer(data=request.data)
+if serializer.is_valid():
+    user = serializer.save()
+```
 """
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from django.contrib.auth.password_validation import validate_password
 
-User = get_user_model()
+from .validators import validate_password, validate_username, validate_email
+from .config import get_validation_config
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
-    """Serializer for user registration."""
-    password = serializers.CharField(write_only=True, validators=[validate_password])
+    """Serializer for user registration - config-driven."""
+    password = serializers.CharField(write_only=True)
     password_confirm = serializers.CharField(write_only=True)
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.Meta.model is None:
+            self.Meta.model = get_user_model()
+    
     class Meta:
-        model = User
+        model = None  # Will be set dynamically in __init__
         fields = ('username', 'email', 'password', 'password_confirm', 'first_name', 'last_name')
     
+    def validate_username(self, value):
+        """Validate username using AUTH_CONFIG."""
+        is_valid, error = validate_username(value)
+        if not is_valid:
+            raise serializers.ValidationError(error)
+        return value
+    
+    def validate_email(self, value):
+        """Validate email using AUTH_CONFIG."""
+        if value:  # Email is optional
+            is_valid, error = validate_email(value)
+            if not is_valid:
+                raise serializers.ValidationError(error)
+        return value
+    
+    def validate_password(self, value):
+        """Validate password using AUTH_CONFIG."""
+        is_valid, error = validate_password(value)
+        if not is_valid:
+            raise serializers.ValidationError(error)
+        return value
+    
     def validate(self, attrs):
-        if attrs['password'] != attrs['password_confirm']:
+        """Validate password match."""
+        if attrs.get('password') != attrs.get('password_confirm'):
             raise serializers.ValidationError({"password": "Password fields didn't match."})
         return attrs
     
     def create(self, validated_data):
+        """Create user - actual creation done by AuthEngine."""
         validated_data.pop('password_confirm')
+        # Note: Actual user creation is handled by AuthEngine.create_user()
+        # This serializer is kept for backward compatibility but may not be used
+        User = get_user_model()
         user = User.objects.create_user(**validated_data)
         return user
 

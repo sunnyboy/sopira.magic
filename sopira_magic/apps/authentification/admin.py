@@ -1,21 +1,30 @@
 #..............................................................
 #   ~/sopira.magic/version_01/sopira_magic/apps/authentification/admin.py
-#   Authentification Admin - Django admin configuration
-#   Admin interface for authentication models (placeholder)
+#   Authentication Admin - Django admin configuration
+#   Admin interface for authentication models
 #..............................................................
 
 """
-   Authentification Admin - Django Admin Configuration.
+Authentication Admin - Django Admin Configuration.
 
-   Django admin interface configuration for authentication models.
-   Currently placeholder - authentication models are managed via Django's
-   built-in User admin or custom admin classes in user app.
+Django admin interface configuration for authentication models.
+Currently no models exist, but AUTH_CONFIG can be viewed here if needed.
 
-   Note:
-   - User model admin is configured in user/admin.py
-   - This file is placeholder for future authentication-related admin classes
+Future: If authentication models are added (e.g., PasswordResetToken, TwoFactorSecret),
+they will be registered here.
 """
 
 from django.contrib import admin
+from .config import AUTH_CONFIG
 
-# Register your models here.
+# Register authentication models here when they are created
+# Example:
+# from .models import PasswordResetToken, TwoFactorSecret
+# @admin.register(PasswordResetToken)
+# class PasswordResetTokenAdmin(admin.ModelAdmin):
+#     list_display = ['user', 'token', 'created', 'expires_at']
+#     list_filter = ['created', 'expires_at']
+#     search_fields = ['user__username', 'user__email']
+
+# For now, AUTH_CONFIG is read-only and managed via code
+# No admin interface needed for configuration (it's SSOT in config.py)

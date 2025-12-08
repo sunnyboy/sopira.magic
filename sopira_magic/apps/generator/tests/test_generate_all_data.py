@@ -14,11 +14,11 @@
 import pytest
 from io import StringIO
 from django.core.management import call_command
-from sopira_magic.apps.user.models import User
-from sopira_magic.apps.company.models import Company
-from sopira_magic.apps.factory.models import Factory
-from sopira_magic.apps.productionline.models import ProductionLine
-from sopira_magic.apps.photo.models import Photo
+from sopira_magic.apps.m_user.models import User
+from sopira_magic.apps.m_company.models import Company
+from sopira_magic.apps.m_factory.models import Factory
+from sopira_magic.apps.m_productionline.models import ProductionLine
+from sopira_magic.apps.m_photo.models import Photo
 
 
 @pytest.mark.django_db

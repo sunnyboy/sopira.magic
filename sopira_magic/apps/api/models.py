@@ -40,7 +40,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from sopira_magic.apps.core.models import TimeStampedModel
-from sopira_magic.apps.user.models import User
+from sopira_magic.apps.m_user.models import User
 
 
 class APIKey(TimeStampedModel):

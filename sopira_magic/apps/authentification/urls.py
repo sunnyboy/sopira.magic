@@ -31,11 +31,15 @@ from . import views
 app_name = 'authentification'
 
 urlpatterns = [
-    path('register/', views.register, name='register'),
+    # Config-driven endpoints
+    path('signup/', views.signup_view, name='signup'),
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
-    path('password-reset/', views.password_reset, name='password_reset'),
-    path('password-reset-confirm/', views.password_reset_confirm, name='password_reset_confirm'),
+    path('check/', views.check_auth_view, name='check_auth'),
+    path('csrf/', views.csrf_token_view, name='csrf_token'),
+    path('forgot-password/', views.forgot_password_view, name='forgot_password'),
+    path('reset-password/', views.reset_password_view, name='reset_password'),
+    path('reset-password/<str:uidb64>/<str:token>/', views.reset_password_view, name='reset_password_with_token'),
     path('verify-2fa/', views.verify_2fa, name='verify_2fa'),
 ]
 

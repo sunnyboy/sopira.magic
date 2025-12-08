@@ -1,0 +1,8 @@
+# Default owner for the entire repository
+* @sunnyboy
+
+# Backend Django project
+/sopira_magic/ @sunnyboy
+
+# Frontend application
+/frontend/ @sunnyboy

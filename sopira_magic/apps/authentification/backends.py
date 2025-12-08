@@ -34,8 +34,6 @@ Authentication Backends - Custom Auth Backends.
 from django.contrib.auth.backends import ModelBackend
 from django.contrib.auth import get_user_model
 
-User = get_user_model()
-
 
 class EmailBackend(ModelBackend):
     """Authentication backend using email instead of username."""
@@ -47,6 +45,7 @@ class EmailBackend(ModelBackend):
         if username is None or password is None:
             return None
         
+        User = get_user_model()
         try:
             user = User.objects.get(email=username)
         except User.DoesNotExist:

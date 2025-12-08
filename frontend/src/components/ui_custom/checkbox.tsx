@@ -1,0 +1,6 @@
+//*........................................................
+//*       www/thermal_eye_ui/src/components/ui_custom/checkbox.tsx
+//*       Re-exports Checkbox from shadcn/ui
+//*........................................................
+
+export * from '@/components/ui/checkbox'

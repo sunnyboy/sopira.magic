@@ -15,8 +15,8 @@ import pytest
 from io import StringIO
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from sopira_magic.apps.user.models import User
-from sopira_magic.apps.company.models import Company
+from sopira_magic.apps.m_user.models import User
+from sopira_magic.apps.m_company.models import Company
 
 
 @pytest.mark.django_db
