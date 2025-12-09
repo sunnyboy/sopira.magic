@@ -47,8 +47,8 @@ export interface SnapshotState {
 }
 
 export interface Snapshot {
-  id: number;
-  user: number;
+  id: string;  // UUID (TableState.id)
+  user: string;  // UUID (User.id)
   username: string;
   factory: string | null;
   table_name: null;  // Always NULL for snapshot
@@ -64,8 +64,8 @@ export interface Snapshot {
 
 // TableStatePreset is the general preset type (includes saved presets AND snapshots)
 export interface TableStatePreset {
-  id: number;
-  user: number;
+  id: string;  // UUID (TableState.id)
+  user: string;  // UUID (User.id)
   factory: string | null;
   factory_code: string | null;
   factory_name: string | null;

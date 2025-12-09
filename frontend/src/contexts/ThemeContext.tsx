@@ -4,6 +4,7 @@
 //*........................................................
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { API_BASE } from '@/config/api';
 
 type Theme = 'light' | 'dark' | 'auto';
 type ThemeColor = 'blue' | 'green' | 'orange';
@@ -42,6 +43,63 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     const stored = localStorage.getItem('sm-theme-color') as ThemeColor | null;
     return stored && ['blue', 'green', 'orange'].includes(stored) ? stored : 'blue';
   });
+
+  // Load theme from user preferences on login
+  // Use try-catch to safely access AuthContext (it might not be available yet)
+  useEffect(() => {
+    let isMounted = true;
+    
+    const loadTheme = async () => {
+      try {
+        // Try to get auth context - it might not be available yet
+        const authContext = React.useContext ? undefined : undefined; // We'll use a different approach
+        // Instead, we'll check if user is authenticated by trying to fetch preferences
+        const prefsUrl = API_BASE 
+          ? `${API_BASE}/api/user/preferences/`
+          : '/api/user/preferences/';
+        const res = await fetch(prefsUrl, {
+          credentials: 'include',
+        });
+        
+        if (res.ok && isMounted) {
+          const data = await res.json();
+          const savedTheme = data?.general_settings?.theme;
+          if (savedTheme && ['light', 'dark', 'auto'].includes(savedTheme)) {
+            // Only update if different to avoid unnecessary re-renders
+            setThemeState(prev => {
+              if (prev !== savedTheme) {
+                localStorage.setItem('sm-theme', savedTheme);
+                return savedTheme as Theme;
+              }
+              return prev;
+            });
+          }
+          
+          const savedColor = data?.general_settings?.theme_color;
+          if (savedColor && ['blue', 'green', 'orange'].includes(savedColor)) {
+            // Only update if different to avoid unnecessary re-renders
+            setThemeColorState(prev => {
+              if (prev !== savedColor) {
+                localStorage.setItem('sm-theme-color', savedColor);
+                return savedColor as ThemeColor;
+              }
+              return prev;
+            });
+          }
+        }
+      } catch (err) {
+        // Silently fail if not authenticated or other error
+        // This is expected before login
+      }
+    };
+
+    // Try to load theme from backend (will fail silently if not authenticated)
+    loadTheme();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Only run once on mount
 
   // Get effective theme (resolve 'auto' to system preference)
   const getEffectiveTheme = (currentTheme: Theme): 'light' | 'dark' => {
@@ -116,8 +174,11 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     root.classList.add(`theme-${themeColor}`);
   }, [themeColor]);
 
-  // Save theme to localStorage when changed
-  const setTheme = async (newTheme: Theme) => {
+  // Save theme to localStorage and backend when changed
+  const setTheme = async (newTheme: Theme, skipBackendSave: boolean = false) => {
+    // Skip if value hasn't changed
+    if (theme === newTheme) return;
+    
     // Update state immediately
     setThemeState(newTheme);
     localStorage.setItem('sm-theme', newTheme);
@@ -141,10 +202,68 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     // Apply theme color
     root.classList.remove('theme-blue', 'theme-green', 'theme-orange');
     root.classList.add(`theme-${themeColor}`);
+
+    // Save to backend only if skipBackendSave is false and user is authenticated
+    if (!skipBackendSave) {
+      try {
+        // Get current preferences
+        const prefsUrl = API_BASE 
+          ? `${API_BASE}/api/user/preferences/`
+          : '/api/user/preferences/';
+        const prefRes = await fetch(prefsUrl, {
+          credentials: 'include',
+        });
+        
+        if (prefRes.ok) {
+          const prefData = await prefRes.json();
+          const existingSettings = prefData?.general_settings || {};
+          
+          // Only save if theme actually changed in backend
+          if (existingSettings.theme !== newTheme) {
+            // Update theme in general_settings
+            const updatedSettings = {
+              ...existingSettings,
+              theme: newTheme,
+              theme_color: themeColor, // Include current theme color
+            };
+
+            // Get CSRF token from cookie if available
+            function getCookie(name: string): string | null {
+              const value = `; ${document.cookie}`;
+              const parts = value.split(`; ${name}=`);
+              if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+              return null;
+            }
+
+            const csrfToken = getCookie('csrftoken');
+
+            // Save updated preferences
+            await fetch(prefsUrl, {
+              method: 'PUT',
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
+              },
+              body: JSON.stringify({
+                selected_factories: prefData?.selected_factories || [],
+                general_settings: updatedSettings,
+              }),
+            });
+          }
+        }
+      } catch (err) {
+        // Silently fail if not authenticated or other error
+        // This is expected before login
+      }
+    }
   };
 
-  // Save theme color to localStorage when changed
-  const setThemeColor = async (newColor: ThemeColor) => {
+  // Save theme color to localStorage and backend when changed
+  const setThemeColor = async (newColor: ThemeColor, skipBackendSave: boolean = false) => {
+    // Skip if value hasn't changed
+    if (themeColor === newColor) return;
+    
     setThemeColorState(newColor);
     localStorage.setItem('sm-theme-color', newColor);
     
@@ -152,6 +271,57 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
     const root = document.documentElement;
     root.classList.remove('theme-blue', 'theme-green', 'theme-orange');
     root.classList.add(`theme-${newColor}`);
+
+    // Save to backend only if skipBackendSave is false and user is authenticated
+    if (!skipBackendSave) {
+      try {
+        const prefsUrl = API_BASE 
+          ? `${API_BASE}/api/user/preferences/`
+          : '/api/user/preferences/';
+        const prefRes = await fetch(prefsUrl, {
+          credentials: 'include',
+        });
+        
+        if (prefRes.ok) {
+          const prefData = await prefRes.json();
+          const existingSettings = prefData?.general_settings || {};
+          
+          // Only save if theme_color actually changed in backend
+          if (existingSettings.theme_color !== newColor) {
+            const updatedSettings = {
+              ...existingSettings,
+              theme_color: newColor,
+            };
+
+            // Get CSRF token from cookie if available
+            function getCookie(name: string): string | null {
+              const value = `; ${document.cookie}`;
+              const parts = value.split(`; ${name}=`);
+              if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+              return null;
+            }
+
+            const csrfToken = getCookie('csrftoken');
+
+            await fetch(prefsUrl, {
+              method: 'PUT',
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
+              },
+              body: JSON.stringify({
+                selected_factories: prefData?.selected_factories || [],
+                general_settings: updatedSettings,
+              }),
+            });
+          }
+        }
+      } catch (err) {
+        // Silently fail if not authenticated or other error
+        // This is expected before login
+      }
+    }
   };
 
   const value: ThemeContextType = {

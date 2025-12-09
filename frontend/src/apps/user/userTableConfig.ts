@@ -17,7 +17,7 @@
 import type { MyTableConfig } from '@/components/MyTable/MyTableTypes'
 
 export type UserRow = {
-  id: number
+  id: string  // UUID
   username: string
   email: string
   first_name: string

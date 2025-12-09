@@ -29,7 +29,7 @@ SCOPING_RULES_MATRIX: ScopingMatrix = {
     # =========================================================================
     # USERS - Basic scoping for sopira.magic
     #   - SUPERADMIN + ADMIN: see all users (no extra filter)
-    #   - others: see only themselves (id == request.user.id)
+    #   - others: see only themselves (id == request.user.id - UUID)
     #
     # Roles here are abstract scoping roles; we map from User.role in
     # a registry callback (see register_role_provider in project code).

@@ -116,7 +116,7 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         # No implicit filters; permissions + scoping control visibility
         "base_filters": {},
         # Ownership hierarchy for scoping engine
-        # scope_level 0 = owner (user.id)
+        # scope_level 0 = owner (user.id - UUID)
         "ownership_hierarchy": ["id"],
         "search_fields": ["username", "email", "first_name", "last_name"],
         "ordering_fields": [

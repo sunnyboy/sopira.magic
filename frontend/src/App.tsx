@@ -16,9 +16,11 @@ import './index.css'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { ScopeProvider } from '@/contexts/ScopeContext'
+import { Toaster } from '@/components/ui/sonner'
 import { DashboardPage } from '@/apps/dashboard/DashboardPage'
 import { FactoryPage } from '@/apps/factory/FactoryPage'
 import { UsersPage } from '@/apps/user/UsersPage'
+import { UserPreferencesPage } from '@/apps/user/UserPreferencesPage'
 import { PdfViewerPage } from '@/apps/pdfviewer/PdfViewerPage'
 import { LocationPage } from '@/apps/location/LocationPage'
 import { CarrierPage } from '@/apps/carrier/CarrierPage'
@@ -38,6 +40,7 @@ function App() {
     <ThemeProvider>
       <AuthProvider>
         <ScopeProvider>
+        <Toaster position="top-center" richColors />
         <BrowserRouter>
           <div className="min-h-screen bg-background text-foreground">
             <Routes>
@@ -48,7 +51,7 @@ function App() {
                 <Route path="/companies" element={<CompanyPage />} />
                 <Route path="/factories" element={<FactoryPage />} />
               <Route path="/users" element={<UsersPage />} />
-                <Route path="/user-preferences" element={<UsersPage />} />
+                <Route path="/user-preferences" element={<UserPreferencesPage />} />
               <Route path="/pdfviewer" element={<PdfViewerPage />} />
               <Route path="/locations" element={<LocationPage />} />
               <Route path="/carriers" element={<CarrierPage />} />

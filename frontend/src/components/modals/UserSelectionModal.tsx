@@ -13,7 +13,7 @@ import { CheckSquare, Square, Users } from 'lucide-react';
 import { API_BASE } from '@/config/api';
 
 interface UserOption {
-  id: number;
+  id: string;  // UUID
   label: string;
   email?: string;
   is_staff: boolean;
@@ -23,8 +23,8 @@ interface UserOption {
 interface UserSelectionModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (selectedIds: number[]) => void;
-  initialSelection?: number[];
+  onSave: (selectedIds: string[]) => void;  // UUID array
+  initialSelection?: string[];  // UUID array
   title?: string;
   description?: string;
   excludeSuperusers?: boolean;
@@ -42,7 +42,7 @@ export function UserSelectionModal({
   const [users, setUsers] = useState<UserOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
-  const [selectedIds, setSelectedIds] = useState<number[]>(initialSelection);
+  const [selectedIds, setSelectedIds] = useState<string[]>(initialSelection || []);  // UUID array
 
   // Load users
   useEffect(() => {
@@ -94,7 +94,7 @@ export function UserSelectionModal({
     );
   }, [users, search]);
 
-  const toggleUser = (id: number, checked: boolean) => {
+  const toggleUser = (id: string, checked: boolean) => {
     setSelectedIds(prev =>
       checked
         ? Array.from(new Set([...prev, id]))

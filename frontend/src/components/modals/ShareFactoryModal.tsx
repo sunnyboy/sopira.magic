@@ -28,7 +28,7 @@ export function ShareFactoryModal({
   factoryNames,
   onSuccess
 }: ShareFactoryModalProps) {
-  const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);  // UUID array
   const [loading, setLoading] = useState(false);
   const [showUserModal, setShowUserModal] = useState(false);
   const api = useApi();

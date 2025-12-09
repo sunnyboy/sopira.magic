@@ -15,7 +15,7 @@ export interface LoadStateModalProps {
   onClose: () => void;
   presets: TableStatePreset[];
   onLoad: (preset: TableStatePreset) => void;
-  onDelete: (id: number) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;  // UUID
   title?: string;
   emptyMessage?: string;
 }
@@ -45,7 +45,7 @@ export function LoadStateModal({
   }, [presets, search]);
 
   // Handle delete
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {  // UUID
     setDeletingIds(prev => new Set(prev).add(id));
     try {
       await onDelete(id);

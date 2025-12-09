@@ -31,6 +31,7 @@
    ```
 """
 
+import uuid
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
@@ -38,7 +39,9 @@ from sopira_magic.apps.core.models import TimeStampedModel
 
 
 class User(AbstractUser):
-    """Extended User model."""
+    """Extended User model with UUID primary key."""
+    # Override AbstractUser.id (BigAutoField) with UUIDField for consistency
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
     class UserRole(models.TextChoices):
         SUPERADMIN = 'superadmin', _('SuperAdmin')

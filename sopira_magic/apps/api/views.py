@@ -245,9 +245,6 @@ def user_filters_view(request):
     """
     user = request.user
     
-    # DEBUG: Log user info
-    logger.debug(f"[user_filters_view] User: id={user.id}, type={type(user.id)}, pk={user.pk}, type(pk)={type(user.pk)}")
-    
     if request.method == "GET":
         storage_key = request.GET.get("storageKey")
         if not storage_key:
@@ -256,38 +253,13 @@ def user_filters_view(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         
-        # DEBUG: Check TableState model field types
-        user_field = TableState._meta.get_field('user')
-        logger.debug(f"[user_filters_view] TableState.user field: {user_field}, remote_field: {user_field.remote_field}, target_field: {user_field.remote_field.target_field if user_field.remote_field else None}")
-        
         # Get filters for this storageKey
-        # PROBLEM: TableState is in STATE DB with UUID id, but User.id is integer
-        # SOLUTION: Use user.pk and cast to string, or use raw SQL with explicit cast
-        # Try using user.pk which should handle the type conversion
-        try:
-            filters = TableState.objects.using('state').filter(
-                user_id=str(user.id),  # Cast to string first, then let Django handle it
-                table_name=storage_key,
-                component="filter",
-                is_active=True,
-            ).order_by("-updated")
-            logger.debug(f"[user_filters_view] Query successful, found {filters.count()} filters")
-        except Exception as e:
-            logger.error(f"[user_filters_view] Query failed: {e}")
-            # Fallback: try with user object
-            try:
-                filters = TableState.objects.using('state').filter(
-                    user=user,
-                    table_name=storage_key,
-                    component="filter",
-                    is_active=True,
-                ).order_by("-updated")
-            except Exception as e2:
-                logger.error(f"[user_filters_view] Fallback query also failed: {e2}")
-                return Response(
-                    {"detail": f"Database error: {str(e2)}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+        filters = TableState.objects.using('state').filter(
+            user_id=user.id,
+            table_name=storage_key,
+            component="filter",
+            is_active=True,
+        ).order_by("-updated")
         
         filters_list = [
             {
@@ -317,8 +289,8 @@ def user_filters_view(request):
         # Create or update filter
         # First try to find existing filter with this name
         try:
-            existing_filters = TableState.objects.filter(
-                user=user,
+            existing_filters = TableState.objects.using('state').filter(
+                user_id=user.id,
                 table_name=storage_key,
                 component="filter",
             )
@@ -335,12 +307,12 @@ def user_filters_view(request):
                     "state": state,
                 }
                 filter_state.is_active = True
-                filter_state.save()
+                filter_state.save(using='state')
                 created = False
             else:
                 # Create new
-                filter_state = TableState.objects.create(
-                    user=user,
+                filter_state = TableState.objects.using('state').create(
+                    user_id=user.id,
                     table_name=storage_key,
                     component="filter",
                     state_data={
@@ -352,8 +324,8 @@ def user_filters_view(request):
                 created = True
         except Exception:
             # Fallback: create new
-            filter_state = TableState.objects.create(
-                user=user,
+            filter_state = TableState.objects.using('state').create(
+                user_id=user.id,
                 table_name=storage_key,
                 component="filter",
                 state_data={
@@ -386,15 +358,15 @@ def user_filters_view(request):
         
         # Delete filter
         # Find filters and delete those matching the name
-        filters = TableState.objects.filter(
-            user=user,
+        filters = TableState.objects.using('state').filter(
+            user_id=user.id,
             table_name=storage_key,
             component="filter",
         )
         deleted_count = 0
         for f in filters:
             if f.state_data.get("name") == name:
-                f.delete()
+                f.delete(using='state')
                 deleted_count += 1
         
         if deleted_count > 0:
@@ -457,9 +429,8 @@ def table_state_presets_view(request):
         show_current = request.GET.get("show_current", "false").lower() == "true"
         
         # Build base query
-        # Use user object directly to avoid type mismatch (STATE DB may have UUID user_id)
-        presets = TableState.objects.filter(
-            user=user,
+        presets = TableState.objects.using('state').filter(
+            user_id=user.id,
             component="preset",
             is_active=True,
         ).order_by("-updated", "-id")
@@ -516,8 +487,8 @@ def table_state_presets_view(request):
             preset_data["factory"] = factory
         
         # Find existing preset
-        presets = TableState.objects.filter(
-            user=user,
+        presets = TableState.objects.using('state').filter(
+            user_id=user.id,
             component="preset",
         )
         
@@ -538,12 +509,12 @@ def table_state_presets_view(request):
             # Update existing
             preset.state_data = preset_data
             preset.is_active = True
-            preset.save()
+            preset.save(using='state')
             created = False
         else:
             # Create new
-            preset = TableState.objects.create(
-                user=user,
+            preset = TableState.objects.using('state').create(
+                user_id=user.id,
                 table_name="preset",  # Use preset as table_name
                 component="preset",
                 state_data=preset_data,
@@ -575,9 +546,9 @@ def table_state_presets_view(request):
             )
         
         try:
-            preset = TableState.objects.get(
+            preset = TableState.objects.using('state').get(
                 id=preset_id,
-                user=user,
+                user_id=user.id,
                 component="preset",
             )
             
@@ -589,7 +560,7 @@ def table_state_presets_view(request):
                 preset_data["factory"] = factory
             
             preset.state_data = preset_data
-            preset.save()
+            preset.save(using='state')
             
             return Response(
                 {
@@ -616,12 +587,12 @@ def table_state_presets_view(request):
             )
         
         try:
-            preset = TableState.objects.get(
+            preset = TableState.objects.using('state').get(
                 id=preset_id,
-                user=user,
+                user_id=user.id,
                 component="preset",
             )
-            preset.delete()
+            preset.delete(using='state')
             
             return Response(
                 {"detail": "Preset deleted successfully"},

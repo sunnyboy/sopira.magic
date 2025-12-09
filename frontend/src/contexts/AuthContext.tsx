@@ -8,7 +8,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { API_BASE } from '@/config/api';
 
 interface User {
-  id: number;
+  id: string;  // UUID
   username: string;
   email: string;
   is_staff: boolean;  // Backward compatibility (deprecated, use is_admin instead)

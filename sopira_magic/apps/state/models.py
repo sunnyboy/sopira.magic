@@ -37,7 +37,7 @@
    Usage:
    ```python
    from sopira_magic.apps.state.models import TableState, SavedWorkspace
-   state = TableState.objects.create(user=user, table_name='companies', state_data={...})
+   state = TableState.objects.using('state').create(user_id=user.id, table_name='companies', state_data={...})
    ```
 """
 

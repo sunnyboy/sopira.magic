@@ -153,4 +153,3 @@ app_name = 'api'
 
 # Auto-generate all URL patterns from VIEWS_MATRIX and CUSTOM_ENDPOINTS
 urlpatterns = MyUrls.generate_urlpatterns()
-
