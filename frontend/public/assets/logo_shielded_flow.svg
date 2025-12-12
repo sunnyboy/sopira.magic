@@ -1,0 +1,46 @@
+<svg width="1200" height="600" viewBox="0 0 1200 600" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Shielded Flow logo concept</title>
+  <desc id="desc">Shield icon with a flowing protected cable path.</desc>
+
+  <defs>
+    <linearGradient id="shieldFace" x1="360" y1="120" x2="840" y2="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2F4A63" />
+      <stop offset="0.5" stop-color="#35536F" />
+      <stop offset="1" stop-color="#2A4158" />
+    </linearGradient>
+    <linearGradient id="innerShield" x1="380" y1="150" x2="820" y2="500" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#DDE3EA" stop-opacity="0.32" />
+      <stop offset="1" stop-color="#DDE3EA" stop-opacity="0.08" />
+    </linearGradient>
+    <filter id="glow" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <path d="M600 90 L840 190 L800 430 L600 520 L400 430 L360 190 Z" fill="url(#shieldFace)" />
+  <path d="M600 138 L804 230 L770 402 L600 480 L430 402 L396 230 Z" fill="url(#innerShield)" />
+
+  <path d="M440 220 C520 140 720 170 740 250 C760 330 640 380 560 430" stroke="#22C2B5" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)" />
+
+  <circle cx="440" cy="220" r="11" fill="#22C2B5" />
+  <circle cx="740" cy="250" r="9" fill="#22C2B5" />
+  <circle cx="560" cy="430" r="10" fill="#22C2B5" />
+
+  <path d="M480 170 Q600 120 720 170" stroke="#DDE3EA" stroke-width="6" stroke-linecap="round" stroke-opacity="0.6" />
+  <path d="M460 260 Q600 320 760 260" stroke="#DDE3EA" stroke-width="6" stroke-linecap="round" stroke-opacity="0.35" />
+
+  <text x="600" y="520" text-anchor="middle" font-family="Inter, 'Segoe UI', sans-serif" font-size="42" font-weight="700" letter-spacing="6" fill="#2F4A63">
+    INDUSTRIAL CABLING
+  </text>
+  <text x="600" y="560" text-anchor="middle" font-family="Inter, 'Segoe UI', sans-serif" font-size="24" letter-spacing="4" fill="#22C2B5">
+    SHIELDED FLOW CONCEPT
+  </text>
+</svg>
+
+
+
+

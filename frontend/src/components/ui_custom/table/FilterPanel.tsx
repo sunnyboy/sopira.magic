@@ -14,6 +14,10 @@ interface FilterPanelProps {
   icon?: React.ReactNode;
   children: React.ReactNode;
   activePresetName?: string | null;
+  isModified?: boolean;
+  onRevertToPreset?: () => void;
+  onSaveModification?: () => void;
+  isSaving?: boolean;
   onSet?: () => void;
   onReset?: () => void;
   onRecall?: () => void;
@@ -25,6 +29,10 @@ export function FilterPanel({
   icon,
   children,
   activePresetName,
+  isModified,
+  onRevertToPreset,
+  onSaveModification,
+  isSaving,
   onSet,
   onReset,
   onRecall,
@@ -36,6 +44,10 @@ export function FilterPanel({
       title={title}
       icon={icon}
       activePresetName={activePresetName}
+      isModified={isModified}
+      onRevertToPreset={onRevertToPreset}
+      onSaveModification={onSaveModification}
+      isSaving={isSaving}
       onSet={onSet}
       onReset={onReset}
       onRecall={onRecall}

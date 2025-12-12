@@ -5,7 +5,7 @@
 //   Based on TE UserPreferences.tsx with adaptations for SM project
 //..............................................................
 
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PageHeader } from '@/components/PageHeader'
 import { PageFooter } from '@/components/PageFooter'
 import { Button } from '@/components/ui/button'
@@ -16,15 +16,9 @@ import { useScope } from '@/contexts/ScopeContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { FactorySelectionModal } from '@/components/modals/FactorySelectionModal'
 import { API_BASE } from '@/config/api'
-import { User, Settings, Globe, Thermometer, Save, RotateCcw } from 'lucide-react'
+import { getMutatingHeaders } from '@/security/csrf'
+import { User, Settings, Globe, Save, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
-
-function getCookie(name: string): string | null {
-  const value = `; ${document.cookie}`
-  const parts = value.split(`; ${name}=`)
-  if (parts.length === 2) return parts.pop()?.split(';').shift() || null
-  return null
-}
 
 interface UserPreferencesData {
   selected_factories: string[]
@@ -41,7 +35,7 @@ interface UserPreferencesData {
 }
 
 export function UserPreferencesPage() {
-  const { user, csrfToken } = useAuth()
+  const { user } = useAuth()
   const { selectedFactories, setSelectedFactories } = useScope()
   const { theme, setTheme, themeColor, setThemeColor } = useTheme()
   const [loading, setLoading] = useState(false)
@@ -126,10 +120,7 @@ export function UserPreferencesPage() {
       const res = await fetch(prefsUrl, {
         method: 'PUT',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(csrfToken || getCookie('csrftoken') ? { 'X-CSRFToken': csrfToken || getCookie('csrftoken')! } : {}),
-        },
+        headers: getMutatingHeaders(),
         body: JSON.stringify(body),
       })
 
@@ -164,25 +155,24 @@ export function UserPreferencesPage() {
   }
 
   return (
-    <>
+    <div className="max-w-[1400px] mx-auto px-4 py-6 space-y-4">
       <PageHeader showLogo={true} showMenu={true} />
-      
-      <div className="min-h-screen bg-background p-6">
-        <div className="max-w-[1400px] mx-auto bg-card rounded-2xl shadow-lg border border-border overflow-hidden">
-          <Card className="border-0 shadow-none rounded-none">
-            <CardHeader>
-              <CardTitle className="text-xl">User Preferences</CardTitle>
-              <CardDescription>
-                Manage your account settings and preferences
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  Loading preferences...
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+
+      <div className="bg-card rounded-2xl shadow-lg border border-border overflow-hidden">
+        <Card className="border-0 shadow-none rounded-none">
+          <CardHeader>
+            <CardTitle className="text-xl">User Preferences</CardTitle>
+            <CardDescription>
+              Manage your account settings and preferences
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="text-center py-12 text-muted-foreground">
+                Loading preferences...
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {/* Account Information */}
                   <Card className="flex flex-col">
                     <CardHeader>
@@ -421,43 +411,42 @@ export function UserPreferencesPage() {
                       </div>
                     </CardContent>
                   </Card>
-                </div>
-              )}
+              </div>
+            )}
 
-              {/* Save Actions */}
-              <div className="mt-8 p-6 border border-border rounded-xl bg-gradient-to-r from-primary/10 to-primary/5">
-                <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold mb-2">Save Changes</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Click the button below to save your preferences. Changes will be applied immediately.
-                    </p>
-                  </div>
-                  <div className="flex gap-3">
-                    <Button
-                      variant="default"
-                      size="default"
-                      onClick={handleReset}
-                      disabled={saving}
-                    >
-                      <RotateCcw className="w-4 h-4 mr-2" />
-                      Reset
-                    </Button>
-                    <Button
-                      variant="solid"
-                      size="default"
-                      onClick={handleSave}
-                      disabled={saving}
-                    >
-                      <Save className="w-4 h-4 mr-2" />
-                      {saving ? 'Saving...' : 'Save Preferences'}
-                    </Button>
-                  </div>
+            {/* Save Actions */}
+            <div className="mt-8 p-6 border border-border rounded-xl bg-gradient-to-r from-primary/10 to-primary/5">
+              <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold mb-2">Save Changes</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Click the button below to save your preferences. Changes will be applied immediately.
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <Button
+                    variant="default"
+                    size="default"
+                    onClick={handleReset}
+                    disabled={saving}
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Reset
+                  </Button>
+                  <Button
+                    variant="solid"
+                    size="default"
+                    onClick={handleSave}
+                    disabled={saving}
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    {saving ? 'Saving...' : 'Save Preferences'}
+                  </Button>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Default Factory Selection Modal */}
@@ -472,6 +461,6 @@ export function UserPreferencesPage() {
         description="Choose factories that will be automatically selected when you log in"
       />
       <PageFooter />
-    </>
+    </div>
   )
 }

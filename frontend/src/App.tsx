@@ -16,6 +16,7 @@ import './index.css'
 import { ThemeProvider } from '@/contexts/ThemeContext'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { ScopeProvider } from '@/contexts/ScopeContext'
+import { MyStateProvider } from '@/contexts/MyStateContext'
 import { Toaster } from '@/components/ui/sonner'
 import { DashboardPage } from '@/apps/dashboard/DashboardPage'
 import { FactoryPage } from '@/apps/factory/FactoryPage'
@@ -31,6 +32,7 @@ import { MachinePage } from '@/apps/machine/MachinePage'
 import { CameraPage } from '@/apps/camera/CameraPage'
 import { MeasurementPage } from '@/apps/measurement/MeasurementPage'
 import { CompanyPage } from '@/apps/company/CompanyPage'
+import GeneratorPage from '@/apps/generator/GeneratorPage'
 import Home from '@/pages/Home'
 import Contact from '@/pages/Contact'
 import Login from '@/pages/Login'
@@ -40,6 +42,7 @@ function App() {
     <ThemeProvider>
       <AuthProvider>
         <ScopeProvider>
+        <MyStateProvider>
         <Toaster position="top-center" richColors />
         <BrowserRouter>
           <div className="min-h-screen bg-background text-foreground">
@@ -61,9 +64,11 @@ function App() {
               <Route path="/machines" element={<MachinePage />} />
               <Route path="/cameras" element={<CameraPage />} />
               <Route path="/measurements" element={<MeasurementPage />} />
+              <Route path="/generator" element={<GeneratorPage />} />
             </Routes>
           </div>
         </BrowserRouter>
+        </MyStateProvider>
         </ScopeProvider>
       </AuthProvider>
     </ThemeProvider>

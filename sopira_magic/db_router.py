@@ -36,7 +36,7 @@ class DatabaseRouter:
     """
     
     # Apps that use STATE database
-    state_apps = ['state']
+    state_apps = ['state', 'mystate']
     
     # Apps that use LOGGING database
     logging_apps = ['logging', 'audit']

@@ -16,10 +16,8 @@ interface TableCardProps {
 
 export function TableCard({ children }: TableCardProps) {
   return (
-    <div className="min-h-screen bg-background p-6">
-      <Card className="max-w-[1400px] mx-auto">
-        {children}
-      </Card>
-    </div>
+    <Card className="w-full">
+      {children}
+    </Card>
   );
 }

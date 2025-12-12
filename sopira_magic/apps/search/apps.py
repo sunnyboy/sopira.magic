@@ -27,3 +27,12 @@ class SearchConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'sopira_magic.apps.search'
     verbose_name = 'Search'
+
+    def ready(self):
+        # Register signals for automatic indexing
+        try:
+            from sopira_magic.apps.search.signals import register_model_signals
+            register_model_signals()
+        except Exception as exc:  # pragma: no cover - startup path
+            import logging
+            logging.getLogger(__name__).warning("[Search] Nepodarilo sa zaregistrovať signály: %s", exc)

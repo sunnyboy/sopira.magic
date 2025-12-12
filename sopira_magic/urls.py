@@ -31,7 +31,10 @@ from sopira_magic.apps.pdfviewer.config import PDF_DEV_ROOT
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('sopira_magic.apps.authentification.urls')),
+    path('api/', include('sopira_magic.apps.search.api.urls')),
+    path('api/', include('sopira_magic.apps.fk_options_cache.api.urls')),
     path('api/', include('sopira_magic.apps.api.urls')),
+    path('api/mystate/', include('sopira_magic.apps.mystate.urls')),
 ]
 
 # Serve development PDF documents from the pdfviewer app when running locally.

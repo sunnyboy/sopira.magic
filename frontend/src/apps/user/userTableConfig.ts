@@ -20,12 +20,15 @@ export type UserRow = {
   id: string  // UUID
   username: string
   email: string
+  last_login?: string
   first_name: string
   last_name: string
   role: string
   is_active: boolean
   is_staff: boolean
   date_joined: string
+  tags?: string
+  companies?: string[]
 }
 
 /**
@@ -78,6 +81,51 @@ export const userTableConfigBase: Omit<MyTableConfig<UserRow>, 'data'> = {
       order: 40,
     },
     {
+      key: 'tags',
+      header: 'Tags',
+      type: 'text',
+      size: 180,
+      order: 240,
+      sortable: false,
+      filterable: false,
+      isInColumnPanel: true,
+      defaultVisible: false,
+    },
+    {
+      key: 'last_login',
+      header: 'Last Login',
+      type: 'date',
+      size: 180,
+      order: 250,
+      sortable: true,
+      filterable: false,
+      format: 'DD.MM.YYYY HH:mm:ss',
+      isInColumnPanel: true,
+      defaultVisible: false,
+    },
+    {
+      key: 'first_name',
+      header: 'First Name',
+      type: 'text',
+      size: 180,
+      order: 260,
+      sortable: true,
+      filterable: true,
+      isInColumnPanel: true,
+      defaultVisible: false,
+    },
+    {
+      key: 'last_name',
+      header: 'Last Name',
+      type: 'text',
+      size: 180,
+      order: 270,
+      sortable: true,
+      filterable: true,
+      isInColumnPanel: true,
+      defaultVisible: false,
+    },
+    {
       key: 'is_active',
       header: 'Active',
       type: 'boolean',
@@ -104,10 +152,24 @@ export const userTableConfigBase: Omit<MyTableConfig<UserRow>, 'data'> = {
       filterable: true,
       order: 70,
     },
+    {
+      key: 'companies',
+      header: 'Companies',
+      type: 'text',
+      size: 260,
+      order: 80,
+      sortable: false,
+      filterable: false,
+      isInColumnPanel: true,
+      defaultVisible: true,
+      editableInline: true,
+      editableInEditModal: false,
+    },
   ],
   pagination: {
-    defaultPageSize: 25,
-    pageSizeOptions: [10, 25, 50, 100],
+    //defaultPageSize: 5,
+    //pageSizeOptions: [5, 10, 25, 50, 100],
+    custom: true,
   },
   filters: {
     fields: ['username', 'email', 'role', 'is_active', 'is_staff'],

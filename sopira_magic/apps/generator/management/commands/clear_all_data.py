@@ -38,8 +38,10 @@
 """
 
 from django.core.management.base import BaseCommand, CommandError
+from django.contrib.auth import get_user_model
 from sopira_magic.apps.generator.services import GeneratorService
 from sopira_magic.apps.generator.config import get_all_generator_configs
+from sopira_magic.apps.generator.progress import ProgressTracker
 from sopira_magic.apps.relation.models import RelationInstance
 from django.db import transaction
 
@@ -62,6 +64,21 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         keep_users = options.get('keep_users')
         dry_run = options.get('dry_run')
+        User = get_user_model()
+        
+        # Ensure root SA sopira exists before any deletion
+        sopira_user = User.objects.filter(username='sopira').first()
+        if sopira_user is None and not dry_run:
+            self.stdout.write(self.style.WARNING('Superuser "sopira" not found. Creating before clear...'))
+            try:
+                sopira_user = User.objects.create_superuser(
+                    username='sopira',
+                    email='sopira@example.com',
+                    password='sopirapass',
+                )
+                self.stdout.write(self.style.SUCCESS('   ✓ Created superuser sopira'))
+            except Exception as e:
+                raise CommandError(f'Unable to create superuser sopira: {e}')
         
         if dry_run:
             self.stdout.write(self.style.WARNING('DRY RUN MODE - No changes will be made\n'))
@@ -107,9 +124,47 @@ class Command(BaseCommand):
         
         # Delete in reverse order
         deleted_counts = {}
+
+        # Progress tracker to stdout + logger
+        import logging
+        logger = logging.getLogger(__name__)
+        total = sum(cfg.get('count', 0) for cfg in configs.values())
+        tracker = ProgressTracker(
+            name="clear_all_data",
+            total=total,
+            logger=logger,
+            log_fn=self.stdout.write,
+        )
+        tracker.start()
+
         for key in reversed(reverse_order):
             if key == 'user' and keep_users:
                 self.stdout.write(self.style.WARNING(f'   Skipping {key} (--keep-users)'))
+                continue
+            
+            if key == 'user' and not keep_users:
+                # Always preserve SA sopira even when removing other users
+                model_path = configs[key].get('model')
+                app_label, model_name = model_path.split('.')
+                from django.apps import apps
+                model_class = apps.get_model(app_label, model_name)
+                if not dry_run:
+                    qs = model_class.objects.exclude(username='sopira')
+                    count = qs.count()
+                    qs.delete()
+                    deleted_counts[key] = count
+                    if count > 0:
+                        self.stdout.write(self.style.SUCCESS(f'   ✓ Cleared users except sopira: {count} records'))
+                    else:
+                        self.stdout.write(f'   → user: No records to clear (besides sopira)')
+                else:
+                    count = model_class.objects.exclude(username='sopira').count()
+                    deleted_counts[key] = count
+                    if count > 0:
+                        self.stdout.write(self.style.WARNING(f'   Would clear users except sopira: {count} records'))
+                    else:
+                        self.stdout.write(f'   → user: No records to clear (besides sopira)')
+                tracker.step(count, note="user")
                 continue
             
             if not dry_run:
@@ -164,12 +219,16 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.WARNING(f'   Would clear {key}: {count} records'))
                 else:
                     self.stdout.write(f'   → {key}: No records to clear')
+            
+            tracker.step(deleted_counts.get(key, 0), note=f"{key}")
         
         total_deleted = sum(deleted_counts.values())
         if total_deleted > 0:
             self.stdout.write(self.style.SUCCESS(f'\n   ✓ Total records cleared: {total_deleted}\n'))
         else:
             self.stdout.write(self.style.WARNING('\n   → No records to clear\n'))
+        
+        tracker.finish()
         
         if dry_run:
             self.stdout.write(self.style.WARNING('=== DRY RUN COMPLETE - No data was actually deleted ===\n'))

@@ -98,7 +98,7 @@ GENERATOR_CONFIG = {
     
     'user': {
         'model': 'user.User',
-        'count': 5,
+        'count': 500,
         'depends_on': [],
         'fields': {
             'username': {'type': 'dataset', 'dataset': 'username'},
@@ -114,16 +114,27 @@ GENERATOR_CONFIG = {
         },
     },
     
+    'tag': {
+        'model': 'tag.Tag',
+        'count': 500,
+        'depends_on': [],
+        'fields': {
+            'name': {'type': 'template', 'template': 'tag-{index:03d}'},
+            'color': {'type': 'static', 'value': '#3366FF'},
+            'description': {'type': 'lorem', 'words': 6},
+        },
+    },
+    
     # =========================================================================
     # LEVEL 1: No FK (User M2M handled via post_create hook)
     # =========================================================================
     
     'company': {
         'model': 'company.Company',
-        'count': 3,
+        'count': 500,
         'depends_on': ['user'],  # For M2M
         'fields': {
-            'code': {'type': 'template', 'template': 'COMP-{index:03d}'},
+            'code': {'type': 'template', 'template': 'C-{index:03d}'},
             'name': {'type': 'dataset', 'dataset': 'business_name'},
             'human_id': {'type': 'copy', 'from': 'code'},
             'comment': {'type': 'lorem', 'words': 10},
@@ -137,11 +148,11 @@ GENERATOR_CONFIG = {
     
     'factory': {
         'model': 'factory.Factory',
-        'count': 6,
+        'count': 500,
         'depends_on': ['company'],
         'fields': {
-            'code': {'type': 'template', 'template': 'FAC-{index:03d}'},
-            'name': {'type': 'template', 'template': 'Factory {index}'},
+            'code': {'type': 'template', 'template': 'F-{index:03d}'},
+            'name': {'type': 'template', 'template': 'FCT {index}'},
             'human_id': {'type': 'copy', 'from': 'code'},
             'address': {'type': 'dataset', 'dataset': 'address', 'country': 'Slovakia'},
             'comment': {'type': 'lorem', 'words': 8},
@@ -160,10 +171,10 @@ GENERATOR_CONFIG = {
     
     'location': {
         'model': 'location.Location',
-        'count': 12,
+        'count': 500,
         'depends_on': ['factory'],
         'fields': {
-            'code': {'type': 'template', 'template': 'LOC-{index:03d}'},
+            'code': {'type': 'template', 'template': 'L-{index:03d}'},
             'name': {'type': 'dataset', 'dataset': 'working_place'},
             'human_id': {'type': 'copy', 'from': 'code'},
             'factory': {
@@ -176,7 +187,7 @@ GENERATOR_CONFIG = {
     
     'carrier': {
         'model': 'carrier.Carrier',
-        'count': 12,
+        'count': 500,
         'depends_on': ['factory'],
         'fields': {
             'code': {'type': 'template', 'template': 'CAR-{index:03d}'},
@@ -192,7 +203,7 @@ GENERATOR_CONFIG = {
     
     'driver': {
         'model': 'driver.Driver',
-        'count': 18,
+        'count': 500,
         'depends_on': ['factory'],
         'fields': {
             'code': {'type': 'template', 'template': 'DRV-{index:03d}'},
@@ -208,7 +219,7 @@ GENERATOR_CONFIG = {
     
     'pot': {
         'model': 'pot.Pot',
-        'count': 24,
+        'count': 500,
         'depends_on': ['factory'],
         'fields': {
             'code': {'type': 'template', 'template': 'POT-{index:03d}'},
@@ -226,7 +237,7 @@ GENERATOR_CONFIG = {
     
     'pit': {
         'model': 'pit.Pit',
-        'count': 12,
+        'count': 500,
         'depends_on': ['factory', 'location'],
         'fields': {
             'code': {'type': 'template', 'template': 'PIT-{index:03d}'},
@@ -250,10 +261,10 @@ GENERATOR_CONFIG = {
     
     'machine': {
         'model': 'machine.Machine',
-        'count': 6,
+        'count': 500,
         'depends_on': ['factory'],
         'fields': {
-            'code': {'type': 'template', 'template': 'MACH-{index:03d}'},
+            'code': {'type': 'template', 'template': 'M-{index:03d}'},
             'name': {'type': 'dataset', 'dataset': 'equipment'},
             'human_id': {'type': 'copy', 'from': 'code'},
             'firmware_number': {'type': 'template', 'template': 'FW-{index}.0.0'},
@@ -267,8 +278,9 @@ GENERATOR_CONFIG = {
     
     'camera': {
         'model': 'camera.Camera',
-        'count': 12,
-        'depends_on': ['factory', 'location'],
+        'count': 500,
+        # Location je voliteľný FK, takže neblokuj generovanie ak lokácie nie sú
+        'depends_on': ['factory'],
         'fields': {
             'code': {'type': 'template', 'template': 'CAM-{index:03d}'},
             'name': {'type': 'template', 'template': 'Thermal Camera {index}'},
@@ -277,7 +289,7 @@ GENERATOR_CONFIG = {
             'manufacturer_name': {'type': 'static', 'value': 'FLIR Systems'},
             'camera_serie': {'type': 'template', 'template': 'A{index}00'},
             'camera_sn': {'type': 'template', 'template': 'SN{index:08d}'},
-            'ip': {'type': 'template', 'template': '192.168.1.{index}'},
+            'ip': {'type': 'dataset', 'dataset': 'ip_address'},
             'port': {'type': 'static', 'value': 8080},
             'protocol': {'type': 'static', 'value': 'RTSP'},
             'resolution': {'type': 'static', 'value': '640x480'},
@@ -301,7 +313,7 @@ GENERATOR_CONFIG = {
     
     'measurement': {
         'model': 'measurement.Measurement',
-        'count': 50,
+        'count': 500,
         'depends_on': ['factory', 'location', 'carrier', 'driver', 'pot', 'pit', 'machine'],
         'fields': {
             'dump_date': {'date_range': {'start': '2024-01-01', 'end': '2024-12-31'}},
@@ -309,10 +321,43 @@ GENERATOR_CONFIG = {
             'pit_number': {'type': 'template', 'template': 'P{index}'},
             'pot_side': {'type': 'choice', 'choices': ['FRONT', 'BACK', 'NONE']},
             'pot_knocks': {'number_range': {'min': 5, 'max': 25}},
-            'pot_weight_kg': {'number_range': {'min': 800.0, 'max': 1800.0}, 'decimals': 3},
-            'roi_temp_max_c': {'number_range': {'min': 800.0, 'max': 1200.0}, 'decimals': 2},
-            'roi_temp_mean_c': {'number_range': {'min': 700.0, 'max': 1000.0}, 'decimals': 2},
-            'roi_temp_min_c': {'number_range': {'min': 500.0, 'max': 800.0}, 'decimals': 2},
+            'pot_knocks_measurement': {'number_range': {'min': 0, 'max': 25}},
+            'pot_weight_kg': {'number_range': {'min': 800.0, 'max': 1800.0}, 'decimals': 0},
+            'roi_temp_max_c': {'number_range': {'min': 200.0, 'max': 400.0}, 'decimals': 2},
+            'roi_temp_mean_c': {'number_range': {'min': 250.0, 'max': 450.0}, 'decimals': 2},
+            'roi_temp_min_c': {'number_range': {'min': 300.0, 'max': 550.0}, 'decimals': 2},
+            'roc_value_min_c': {'number_range': {'min': -5.0, 'max': 1.0}, 'decimals': 1, 'step': 0.1},
+            'roc_value_max_c': {'number_range': {'min': 0.0, 'max': 5.0}, 'decimals': 1, 'step': 0.1},
+            'graph_roc': {
+                'type': 'graph',
+                'title': 'ROC',
+                'series_name': 'ROC',
+                'x_label': 'Time',
+                'y_label': 'ROC',
+                'x_unit': 's',
+                'y_unit': '°C',
+                'tooltip': 't={t}{xUnit} • ROC={v}{yUnit}',
+                'start_time_range': {'start': '07:00:00', 'end': '19:00:00'},
+                'duration_seconds': {'min': 30, 'max': 120},
+                'value_range': {'min': -5.0, 'max': 5.0},
+                'value_step': 0.1,
+                'decimals': 1,
+            },
+            'graph_temp': {
+                'type': 'graph',
+                'title': 'Temperature',
+                'series_name': 'TEMP',
+                'x_label': 'Time',
+                'y_label': 'Temperature',
+                'x_unit': 's',
+                'y_unit': '°C',
+                'tooltip': 't={t}{xUnit} • TEMP={v}{yUnit}',
+                'start_time_range': {'start': '07:00:00', 'end': '19:00:00'},
+                'duration_seconds': {'min': 30, 'max': 120},
+                'value_range': {'min': 250.0, 'max': 450.0},
+                'value_step': 5.0,
+                'decimals': 1,
+            },
             'comment': {'type': 'lorem', 'words': 5},
             # FK fields
             'factory': {
@@ -361,7 +406,7 @@ GENERATOR_CONFIG = {
     
     'photo': {
         'model': 'photo.Photo',
-        'count': 100,
+        'count': 500,
         'depends_on': ['measurement'],
         'fields': {
             'photo_url': {'type': 'dataset', 'dataset': 'photo_url'},
@@ -379,7 +424,7 @@ GENERATOR_CONFIG = {
     
     'video': {
         'model': 'video.Video',
-        'count': 50,
+        'count': 500,
         'depends_on': ['measurement'],
         'fields': {
             'video_url': {'type': 'template', 'template': 'https://videos.example.com/video_{index}.mp4'},

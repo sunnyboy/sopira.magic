@@ -366,19 +366,10 @@ export function AddRecordModal<T extends Record<string, any>>({
       // Debug logging
 
       // Make API call
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      const csrfToken = getCsrfToken ? getCsrfToken() : null;
-      if (csrfToken) {
-        headers['X-CSRFToken'] = csrfToken;
-      }
-
       const response = await fetch(apiEndpoint, {
         method: 'POST',
         credentials: 'include',
-        headers,
+        headers: getCsrfToken ? getMutatingHeaders() : { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 

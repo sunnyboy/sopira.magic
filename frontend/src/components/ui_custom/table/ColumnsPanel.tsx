@@ -32,6 +32,10 @@ interface ColumnsPanelProps<TData> {
   title?: string;
   icon?: React.ReactNode;
   activePresetName?: string | null;
+  isModified?: boolean;
+  onRevertToPreset?: () => void;
+  onSaveModification?: () => void;
+  isSaving?: boolean;
   onSet?: () => void;
   onReset?: () => void;
   onRecall?: () => void;
@@ -105,6 +109,10 @@ export function ColumnsPanel<TData>({
   title = 'Columns',
   icon,
   activePresetName,
+  isModified,
+  onRevertToPreset,
+  onSaveModification,
+  isSaving,
   onSet,
   onReset,
   onRecall,
@@ -166,6 +174,10 @@ export function ColumnsPanel<TData>({
       title={title}
       icon={icon}
       activePresetName={activePresetName}
+      isModified={isModified}
+      onRevertToPreset={onRevertToPreset}
+      onSaveModification={onSaveModification}
+      isSaving={isSaving}
       onSet={onSet}
       onReset={onReset}
       onRecall={onRecall}

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 //*........................................................
 //*       www/thermal_eye_ui/src/components/ui_custom/table/fieldFactory.tsx
 //*       Declarative field factory for table columns
@@ -6,9 +7,8 @@
 
 import React from 'react';
 import * as TI from './tableImports';
-import { API_BASE } from '@/config/api';
 import type { OptimisticFieldConfig } from './useOptimisticField';
-import type { ColumnDef } from '@tanstack/react-table';
+import type { ColumnDef, Row } from '@tanstack/react-table';
 import { ScopedFKCell } from './ScopedFKCell';
 import { getOwnershipField } from '@/config/modelMetadata';
 
@@ -20,6 +20,8 @@ export interface BaseFieldConfig<TData = any> {
   key: string;
   /** Column header label */
   header: string;
+  /** Phantom field to keep TData used in generics */
+  __dataType?: TData;
   /** Column width (default: 120) */
   size?: number;
   /** Minimum column width for resizing (default: 50) */
@@ -181,6 +183,8 @@ export interface SelectionFieldConfig<TData = any> {
   editable?: false;
   sortable?: false;
   filterable?: false;
+  /** Phantom field to keep TData used in generics */
+  __dataType?: TData;
 }
 
 /**
@@ -209,6 +213,8 @@ export interface ActionsFieldConfig<TData = any> {
   editable?: false;
   sortable?: false;
   filterable?: false;
+  /** Phantom field to keep TData used in generics */
+  __dataType?: TData;
 }
 
 /**
@@ -337,10 +343,6 @@ export function createTableColumn<TData extends Record<string, any>>(
   context: FieldFactoryContext<TData>,
   columnHelper: any
 ): ColumnDef<TData, any> {
-  console.log(`[fieldFactory.createTableColumn] Called for field: ${config.key}`, {
-    type: config.type,
-    // scopedByFactory is deprecated - backend automatically applies scope
-  });
   
   // ============================================
   // SPECIAL COLUMNS (display type, not accessor)
@@ -366,7 +368,7 @@ export function createTableColumn<TData extends Record<string, any>>(
           />
         );
       },
-      cell: ({ row }) => (
+      cell: ({ row }: { row: Row<TData> }) => (
         <input
           type="checkbox"
           checked={context.isSelected?.(row.original.id) || false}
@@ -385,7 +387,7 @@ export function createTableColumn<TData extends Record<string, any>>(
     return columnHelper.display({
       id: 'actions',
       header: config.header || 'Actions',
-      cell: ({ row }) => {
+      cell: ({ row }: { row: Row<TData> }) => {
         const r = row.original;
         const editing = context.checkIsEditing?.(String(r.id), 'actions') || false;
         const rowId = String(r.id);
@@ -462,9 +464,6 @@ export function createTableColumn<TData extends Record<string, any>>(
   const {
     key,
     header,
-    size,
-    minSize: configMinSize,
-    maxSize: configMaxSize,
     editable = true,
     sortable = true,
     filterable = true,
@@ -848,14 +847,6 @@ function renderEditableField<TData>(
       : 'factory'; // Fallback for backward compatibility
     const isOwnershipField = config.key === ownershipFilterField;
     
-    console.log(`[fieldFactory] FK field detected: ${config.key}`, {
-      scopedByFactory: config.scopedByFactory,
-      key: config.key,
-      ownershipFilterField,
-      isOwnershipField,
-      willUseScopedFKCell: config.scopedByFactory && !isOwnershipField,
-    });
-    
     const val = String((row as any)[config.key] ?? '');
     
     // Use backend-generated compound display label or apply template
@@ -911,12 +902,6 @@ function renderEditableField<TData>(
     // Use ScopedFKCell for scoped fields, regular EditableCell for global fields
     // Backend automatically applies scope - scopedByFactory flag is deprecated but kept for backward compatibility
     if (config.scopedByFactory && !isOwnershipField) {
-      console.log(`[fieldFactory] Using ScopedFKCell for field: ${config.key}`, {
-        scopedByFactory: config.scopedByFactory,
-        isEditing,
-        hasGetScopedOptions: typeof context.getScopedOptions === 'function',
-        hasScopedCache: context.scopedCache !== undefined,
-      });
       return (
         <ScopedFKCell
           config={config}
@@ -1023,9 +1008,5 @@ export function createTableColumns<TData extends Record<string, any>>(
   context: FieldFactoryContext<TData>,
   columnHelper: any
 ): ColumnDef<TData, any>[] {
-  console.log(`[fieldFactory.createTableColumns] Called with ${configs.length} configs`, {
-    configKeys: configs.map(c => c.key),
-    fkConfigs: configs.filter(c => c.type === 'fk').map(c => ({ key: c.key, scopedByFactory: c.scopedByFactory })),
-  });
   return configs.map(config => createTableColumn(config, context, columnHelper));
 }

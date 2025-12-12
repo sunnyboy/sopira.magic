@@ -8,6 +8,7 @@ import type { SavedFilter } from './RecallFilterModal';
 import { API_BASE } from '@/config/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { getMutatingHeaders } from '@/security/csrf';
 
 export function useColumnPresetsState(storageKey: string) {
   const { csrfToken } = useAuth();
@@ -78,10 +79,7 @@ export function useColumnPresetsState(storageKey: string) {
       const res = await fetch(url, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
-        },
+        headers: getMutatingHeaders(),
         body: JSON.stringify(payload),
       });
       console.log('🔵 [saveColumn] Response status:', res.status);
@@ -114,10 +112,7 @@ export function useColumnPresetsState(storageKey: string) {
       const res = await fetch(`${base}/api/user/columns/`, {
         method: 'DELETE',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
-        },
+        headers: getMutatingHeaders(),
         body: JSON.stringify({ name, storageKey }),
       });
 

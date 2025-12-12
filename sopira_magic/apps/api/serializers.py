@@ -28,6 +28,8 @@ from typing import Type, Optional, Dict, Any
 
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
+from sopira_magic.apps.m_company.models import Company
+from sopira_magic.apps.m_factory.models import Factory
 
 logger = logging.getLogger(__name__)
 
@@ -75,27 +77,17 @@ def get_fk_display_label(obj: Any, template: str) -> Optional[str]:
 # =============================================================================
 
 class UserListSerializer(serializers.ModelSerializer):
-    """Read-only serializer for listing users in admin tables.
+    """Read-write serializer pre users s M2M companies."""
 
-    This serializer is intentionally minimal and stable so it can serve as
-    a Single Source of Truth (SSOT) for the users table in the frontend.
-    """
+    companies = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Company.objects.all(), required=False
+    )
 
     class Meta:
         model = User
-        # Fields are part of SSOT for the users table config
-        fields = (
-            "id",
-            "username",
-            "email",
-            "first_name",
-            "last_name",
-            "role",
-            "is_active",
-            "is_staff",
-            "date_joined",
-        )
-        read_only_fields = fields
+        fields = "__all__"
+
+
 
 
 class MySerializer(serializers.ModelSerializer):
@@ -241,3 +233,47 @@ class MySerializer(serializers.ModelSerializer):
     def clear_cache(cls):
         """Clear the serializer cache (useful for testing)."""
         cls._serializer_cache.clear()
+
+
+# -------------------------------------------------------------------------
+# Company serializer with M2M users (through UserCompany)
+# -------------------------------------------------------------------------
+from sopira_magic.apps.m_company.models import Company
+
+
+class CompanySerializer(serializers.ModelSerializer):
+    users = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=User.objects.all(),
+        required=False,
+    )
+    factories = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Company
+        fields = "__all__"
+
+    def get_factories(self, obj):
+        return list(
+            Factory.objects.filter(company=obj).values_list("id", flat=True)
+        )
+
+    def update(self, instance, validated_data):
+        factories_ids = self.initial_data.get("factories", None)
+        # Remove factories from validated_data to avoid unknown field
+        if "factories" in validated_data:
+            validated_data.pop("factories")
+
+        instance = super().update(instance, validated_data)
+
+        if factories_ids is not None:
+            # Normalize IDs as strings
+            ids = [str(x) for x in factories_ids if x]
+            # Assign selected factories to this company
+            Factory.objects.filter(id__in=ids).update(company=instance)
+            # Unassign factories previously linked but now deselected
+            Factory.objects.filter(company=instance).exclude(id__in=ids).update(
+                company=None
+            )
+
+        return instance

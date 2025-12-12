@@ -49,6 +49,8 @@
 
 from django.core.management.base import BaseCommand, CommandError
 from sopira_magic.apps.generator.services import GeneratorService
+from sopira_magic.apps.generator.config import get_all_generator_configs
+from sopira_magic.apps.generator.progress import ProgressTracker
 from sopira_magic.apps.m_user.models import User
 
 
@@ -84,7 +86,19 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('Generating seed data for all models...'))
         
         try:
+            # Progress tracker to stdout + logger
+            import logging
+            logger = logging.getLogger(__name__)
+            total = sum(cfg.get('count', 0) for cfg in get_all_generator_configs().values())
+            tracker = ProgressTracker(
+                name="generate_all_data",
+                total=total,
+                logger=logger,
+                log_fn=self.stdout.write,
+            )
+            tracker.start()
             results = GeneratorService.generate_seed_data(user=user)
+            tracker.finish()
             
             self.stdout.write(self.style.SUCCESS('\nGeneration complete:'))
             total_created = 0

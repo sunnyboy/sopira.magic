@@ -13,13 +13,16 @@
  * this component.
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 
 import { PageHeader } from '@/components/PageHeader'
 import { PageFooter } from '@/components/PageFooter'
 import { MyTable } from '@/components/MyTable'
 import type { MyTableConfig } from '@/components/MyTable/MyTableTypes'
 import { userTableConfigBase, type UserRow } from './userTableConfig'
+import { MultiSelect } from '@/components/ui_custom/multi-select'
+import { loadFKOptionsFromCache } from '@/services/fkCacheService'
+import { getMutatingHeaders } from '@/security/csrf'
 
 interface UsersApiResponse {
   count?: number
@@ -32,6 +35,8 @@ export function UsersPage() {
   const [rows, setRows] = useState<UserRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [companyOptions, setCompanyOptions] = useState<{ value: string; label: string }[]>([])
+  const [companiesByUser, setCompaniesByUser] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
     let isMounted = true
@@ -73,7 +78,19 @@ export function UsersPage() {
     }
   }, [])
 
-  const config: MyTableConfig<UserRow> = {
+  useEffect(() => {
+    const loadCompanies = async () => {
+      try {
+        const opts = await loadFKOptionsFromCache('companies')
+        setCompanyOptions(opts.map(o => ({ value: String(o.id), label: o.label ?? String(o.id) })))
+      } catch (err) {
+        console.error('Failed to load companies FK options', err)
+      }
+    }
+    void loadCompanies()
+  }, [])
+
+  const config: MyTableConfig<UserRow> = useMemo(() => ({
     ...userTableConfigBase,
     data: rows,
     pageHeader: {
@@ -82,7 +99,42 @@ export function UsersPage() {
     pageFooter: {
       visible: false,
     },
-  }
+    customCellRenderers: {
+      companies: (row: UserRow) => {
+        const userId = row?.id ? String(row.id) : null
+        if (!userId) return <span className="text-sm text-muted-foreground">N/A</span>
+        const currentRaw = companiesByUser[userId] ?? row.companies ?? []
+        const current = Array.isArray(currentRaw) ? currentRaw : []
+
+        const handleChange = async (selected: string[]) => {
+          setCompaniesByUser((prev) => ({ ...prev, [userId]: selected }))
+          try {
+            await fetch(`/api/users/${userId}/`, {
+              method: 'PATCH',
+              credentials: 'include',
+              headers: getMutatingHeaders(),
+              body: JSON.stringify({ companies: selected }),
+            })
+          } catch (err) {
+            console.error('Failed to update user companies', err)
+          }
+        }
+
+        return (
+          <div className="min-w-[220px]">
+            <MultiSelect
+              options={companyOptions}
+              defaultValue={current.map(String)}
+              onValueChange={handleChange}
+              placeholder="Select companies"
+              maxCount={4}
+              searchable
+            />
+          </div>
+        )
+      },
+    },
+  }), [rows, companiesByUser, companyOptions])
 
   if (error) {
     return (
@@ -102,14 +154,10 @@ export function UsersPage() {
   }
 
   return (
-    <>
+    <div className="max-w-[1400px] mx-auto px-4 py-6 space-y-4">
       <PageHeader showLogo={true} showMenu={true} />
-      <div className="min-h-screen bg-background p-6">
-        <div className="max-w-[1400px] mx-auto">
-          <MyTable config={config} />
-        </div>
-      </div>
+      <MyTable config={config} />
       <PageFooter />
-    </>
+    </div>
   )
 }

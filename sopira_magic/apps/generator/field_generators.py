@@ -25,7 +25,7 @@ Field Generators - Auto-Detecting Field Type Generators.
    - EmailField: Email generation from datasets
    - URLField: URL generation
    - UUIDField: UUID generation
-    - ForeignKey: FK object selection via 'fk' type
+   - ForeignKey: FK object selection via 'fk' type
 
    Generation Types:
    - template: Template-based (e.g., 'COMP-{index:03d}')
@@ -90,6 +90,7 @@ from .datasets import (
     generate_username,
     generate_photo_url,
     generate_tags,
+    generate_ip_address,
 )
 
 
@@ -120,6 +121,8 @@ class FieldGenerator:
             return FieldGenerator._generate_fk(field_config, index, context)
         elif field_type == 'choice':
             return FieldGenerator._generate_choice(field_config, index, context)
+        elif field_type == 'graph':
+            return FieldGenerator._generate_graph(field_config, index, context)
         else:
             return None
     
@@ -357,8 +360,95 @@ class FieldGenerator:
             tags = generate_tags(count)
             # Return as list or comma-separated string based on config
             return tags if field_config.get('as_list', False) else ', '.join(tags)
+        elif dataset == 'ip_address' or dataset == 'ip':
+            return generate_ip_address()
         else:
             return None
+
+    @staticmethod
+    def _generate_graph(field_config: Dict[str, Any], index: int, context: Dict[str, Any] = None) -> Any:
+        """
+        Generate graph payload in unified {header, series[]} form.
+        
+        Config options:
+            - title, x_label, y_label, x_unit, y_unit, tooltip
+            - series_name: legend label for single series
+            - start_time_range: {'start': '07:00:00', 'end': '19:00:00'}
+            - duration_seconds: {'min': 30, 'max': 120}
+            - value_range: {'min': -5.0, 'max': 5.0}
+            - value_step: 0.1 (optional, applied before rounding)
+            - decimals: rounding for values (default 1)
+        """
+        context = context or {}
+        from datetime import time as time_cls
+
+        def _to_seconds(t: time_cls) -> int:
+            return t.hour * 3600 + t.minute * 60 + t.second
+
+        def _parse_time(raw: Any, fallback: str) -> time_cls:
+            if isinstance(raw, time_cls):
+                return raw
+            try:
+                return time.fromisoformat(raw)
+            except Exception:
+                return time.fromisoformat(fallback)
+
+        # Duration (1 Hz sampling)
+        duration_cfg = field_config.get('duration_seconds', {})
+        duration_min = int(duration_cfg.get('min', 30))
+        duration_max = int(duration_cfg.get('max', 120))
+        if duration_min < 1:
+            duration_min = 1
+        if duration_max < duration_min:
+            duration_max = duration_min
+        duration = random.randint(duration_min, duration_max)
+
+        # Start time window (seconds of day)
+        start_range = field_config.get('start_time_range', {})
+        start_time = _parse_time(start_range.get('start'), '07:00:00')
+        end_time = _parse_time(start_range.get('end'), '19:00:00')
+        start_seconds = _to_seconds(start_time)
+        end_seconds = _to_seconds(end_time)
+        if end_seconds < start_seconds:
+            end_seconds = start_seconds
+        latest_start = max(start_seconds, end_seconds - duration)
+        base_seconds = random.randint(start_seconds, max(start_seconds, latest_start))
+
+        # Values
+        value_cfg = field_config.get('value_range', {})
+        value_min = float(value_cfg.get('min', 0.0))
+        value_max = float(value_cfg.get('max', 1.0))
+        if value_max < value_min:
+            value_max = value_min
+        value_step = field_config.get('value_step')
+        decimals = int(field_config.get('decimals', 1))
+
+        def _sample_value() -> float:
+            if value_step:
+                steps = int((value_max - value_min) / value_step) if value_step else 0
+                steps = max(steps, 0)
+                chosen_step = random.randint(0, steps) if steps > 0 else 0
+                value = value_min + (chosen_step * value_step)
+            else:
+                value = random.uniform(value_min, value_max)
+            return round(value, decimals)
+
+        data = [{'t': base_seconds + i, 'v': _sample_value()} for i in range(duration)]
+
+        header = {
+            'title': field_config.get('title', 'Graph'),
+            'xLabel': field_config.get('x_label', 'Time'),
+            'yLabel': field_config.get('y_label', 'Value'),
+            'xUnit': field_config.get('x_unit', 's'),
+            'yUnit': field_config.get('y_unit', ''),
+            'tooltip': field_config.get('tooltip', 't={t}{xUnit} • v={v}{yUnit}'),
+            'serialLabels': field_config.get('serial_labels', None),
+        }
+
+        series_name = field_config.get('series_name') or header['title'] or 'Series'
+        series = [{'name': series_name, 'data': data}]
+
+        return {'header': header, 'series': series}
 
 
 def generate_field_value(field: models.Field, field_config: Dict[str, Any], index: int, context: Dict[str, Any] = None) -> Any:

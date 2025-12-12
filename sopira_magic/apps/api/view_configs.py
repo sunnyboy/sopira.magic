@@ -39,7 +39,7 @@ from sopira_magic.apps.pdfviewer.serializers import (
     FocusedViewSerializer,
     AnnotationSerializer,
 )
-from .serializers import UserListSerializer
+from .serializers import UserListSerializer, CompanySerializer
 
 
 IS_LOCAL_ENV = getattr(settings, "ENV", "local") == "local"
@@ -113,11 +113,13 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
     "users": {
         "model": User,
         "serializer_read": UserListSerializer,
+        "serializer_write": UserListSerializer,
         # No implicit filters; permissions + scoping control visibility
         "base_filters": {},
         # Ownership hierarchy for scoping engine
         # scope_level 0 = owner (user.id - UUID)
         "ownership_hierarchy": ["id"],
+        "fk_display_template": "{username} — {first_name} {last_name} ({email})",
         "search_fields": ["username", "email", "first_name", "last_name"],
         "ordering_fields": [
             "id",
@@ -137,9 +139,9 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
     # Companies - Superuser-only access
     "companies": {
         "model": Company,
-        "serializer_read": None,
-        "serializer_write": None,
-        "base_filters": {"active": True},
+        "serializer_read": CompanySerializer,
+        "serializer_write": CompanySerializer,
+        "base_filters": {},
         # Scoping: Superuser only in this iteration
         "ownership_hierarchy": ["users"],
         "search_fields": ["name", "code", "human_id"],
@@ -174,7 +176,7 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         "factory_scoped": False,  # Factories are company-scoped, not factory-scoped
         "dynamic_search": True,
         "table_name": "factories",
-        "fk_display_template": "{code}-{human_id}-{name}",
+        "fk_display_template": "{name}",
         # FK configuration
         "fk_fields": {"company": "companies"},
         "select_related": ["company"],
@@ -555,6 +557,122 @@ CUSTOM_ENDPOINTS: Dict[str, CustomEndpointConfig] = {
         "view_function": "sopira_magic.apps.api.views.table_state_presets_view",
         "name": "table-state-presets",
         "methods": ["GET", "POST", "PUT", "DELETE"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    "table-state-presets-detail": {
+        "path": "table-state-presets/<uuid:id>/",
+        "view_function": "sopira_magic.apps.api.views.table_state_presets_detail_view",
+        "name": "table-state-presets-detail",
+        "methods": ["GET", "PATCH", "DELETE"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+        "path_params": {"id": "uuid"},
+    },
+
+    # =========================================================================
+    # Generator Endpoints
+    # =========================================================================
+
+    "generator-models": {
+        "path": "generator/models/",
+        "view_function": "sopira_magic.apps.api.views.generator_models_view",
+        "name": "generator-models",
+        "methods": ["GET"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    "generator-objects": {
+        "path": "generator/objects/",
+        "view_function": "sopira_magic.apps.api.views.generator_objects_view",
+        "name": "generator-objects",
+        "methods": ["GET"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    "generator-generate": {
+        "path": "generator/generate/",
+        "view_function": "sopira_magic.apps.api.views.generator_generate_view",
+        "name": "generator-generate",
+        "methods": ["POST"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    "generator-clear": {
+        "path": "generator/clear/",
+        "view_function": "sopira_magic.apps.api.views.generator_clear_view",
+        "name": "generator-clear",
+        "methods": ["POST"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    "generator-clear-all": {
+        "path": "generator/clear-all/",
+        "view_function": "sopira_magic.apps.api.views.generator_clear_all_view",
+        "name": "generator-clear-all",
+        "methods": ["POST"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    "generator-clear-all-state": {
+        "path": "generator/clear-all-state/",
+        "view_function": "sopira_magic.apps.api.views.generator_clear_all_and_state_view",
+        "name": "generator-clear-all-state",
+        "methods": ["POST"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+
+    # =========================================================================
+    # GENERATOR PROGRESS ENDPOINTS (SSE / status / cancel)
+    # =========================================================================
+
+    "generator-progress-status": {
+        "path": "generator/progress/<str:job_id>/status/",
+        "view_function": "sopira_magic.apps.api.views.generator_progress_status_view",
+        "name": "generator-progress-status",
+        "methods": ["GET"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+        "path_params": {"job_id": "string"},
+    },
+    "generator-progress-cancel": {
+        "path": "generator/progress/<str:job_id>/cancel/",
+        "view_function": "sopira_magic.apps.api.views.generator_progress_cancel_view",
+        "name": "generator-progress-cancel",
+        "methods": ["POST"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+        "path_params": {"job_id": "string"},
+    },
+    "generator-progress-stream": {
+        "path": "generator/progress/<str:job_id>/stream/",
+        "view_function": "sopira_magic.apps.api.views.generator_progress_stream_view",
+        "name": "generator-progress-stream",
+        "methods": ["GET"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+        "path_params": {"job_id": "string"},
+    },
+    
+    # =========================================================================
+    # TAG GENERATOR ENDPOINTS
+    # =========================================================================
+    
+    "generator-tags-assign": {
+        "path": "generator/tags/assign/",
+        "view_function": "sopira_magic.apps.api.views.generator_tags_assign_view",
+        "name": "generator-tags-assign",
+        "methods": ["POST"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    
+    "generator-tags-remove": {
+        "path": "generator/tags/remove/",
+        "view_function": "sopira_magic.apps.api.views.generator_tags_remove_view",
+        "name": "generator-tags-remove",
+        "methods": ["POST"],
         "permission_classes": ["IsAuthenticated"],
         "cors_enabled": True,
     },

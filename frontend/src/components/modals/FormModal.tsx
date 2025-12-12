@@ -30,6 +30,8 @@ interface FormModalProps {
   beforeFormContent?: React.ReactNode;
   submitText?: string;
   cancelText?: string;
+  /** Disable the submit button */
+  submitDisabled?: boolean;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
@@ -45,6 +47,7 @@ export function FormModal({
   beforeFormContent,
   submitText = 'Save',
   cancelText = 'Cancel',
+  submitDisabled = false,
   size = 'md',
   className,
   initialFocusRef,
@@ -101,7 +104,7 @@ export function FormModal({
           <Button type="button" variant="ghost" onClick={onClose}>
             {cancelText}
           </Button>
-          <Button type="submit">
+          <Button type="submit" disabled={submitDisabled}>
             {submitText}
           </Button>
         </div>

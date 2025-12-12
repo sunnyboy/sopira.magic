@@ -106,7 +106,7 @@ FIRST_NAMES = [
     "Elizabeth", "William", "Barbara", "David", "Susan", "Richard", "Jessica",
     "Jozef", "Mária", "Martin", "Katarína", "Zuzana", "Lukáš", "Anna",
     "Tomáš", "Eva", "Michal", "Monika", "Róbert", "Veronika", "Andrej", "Natalia",
-    "Richard", "Hannah", "Joseph", "Samantha", "Charles", "Olivia", "Daniel", "Sophia",
+    "Hannah", "Joseph", "Samantha", "Charles", "Olivia", "Daniel", "Sophia",
     "Norbert", "Klaus", "Helena", "Igor", "Renata", "Viktor", "Petra", "Joachim",
     "Sebastian", "Claudia", "Alexander", "Ursula", "Maximilian", "Anja", "Felix", "Bianca",
     "Emma", "Noah", "Oliver", "Ava", "Elijah", "Charlotte", "Lucas", "Amelia",
@@ -123,11 +123,11 @@ LAST_NAMES = [
     "Novak", "Kovacs", "Horvath", "Toth", "Szabo", "Varga", "Molnar", "Nagy",
     "Smirnov", "Ivanov", "Kuznetsov", "Popov", "Sokolov", "Lebedev", "Kozlov",
     "Petrov", "Semenov", "Egorov", "Pavlov", "Volkov", "Sidorov", "Mikhailov",
-    "Kováč", "Horváth", "Varga", "Baláž", "Tóth", "Nagy", "Farkaš", "Molnár",
+    "Kováč", "Horváth", "Baláž", "Tóth", "Farkaš", "Molnár",
     "Kiss", "Szabó", "Papp", "Mészáros", "Lakatos", "Vincze", "Kerekes", "Szalai",
     "Novák", "Dvořák", "Svoboda", "Novotný", "Černý", "Procházka", "Kučera", "Veselý",
     "Horák", "Beneš", "Pokorný", "Jelínek", "Smith", "Johnson", "Williams", "Brown",
-    "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez", "Hernandez",
+    "Jones", "Garcia", "Miller", "Davis",
 ]
 
 
@@ -505,4 +505,22 @@ def generate_tags(count: int = None) -> list:
     if count is None:
         count = random.randint(1, 5)
     return random.sample(TAG_POOL, min(count, len(TAG_POOL)))
+
+
+# IP Addresses
+IP_PREFIXES = [
+    "192.168.1",
+    "192.168.0",
+    "10.0.0",
+    "10.0.1",
+    "172.16.0",
+    "172.16.1",
+]
+
+
+def generate_ip_address() -> str:
+    """Generate valid private IP address."""
+    prefix = random.choice(IP_PREFIXES)
+    last_octet = random.randint(1, 254)  # Avoid 0 (network) and 255 (broadcast)
+    return f"{prefix}.{last_octet}"
 

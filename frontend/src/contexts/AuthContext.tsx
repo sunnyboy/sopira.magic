@@ -6,6 +6,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { API_BASE } from '@/config/api';
+import { getMutatingHeaders } from '@/security/csrf';
 
 interface User {
   id: string;  // UUID
@@ -138,10 +139,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const response = await fetch(`${API_BASE}/api/auth/login/`, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': token,
-        },
+        headers: getMutatingHeaders({ 'X-CSRFToken': token }),
         body: JSON.stringify({ username, password }),
       });
 
@@ -159,9 +157,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         const retryResponse = await fetch(`${API_BASE}/api/auth/login/`, {
           method: 'POST',
           credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: getMutatingHeaders(),
           body: JSON.stringify({ username, password }),
         });
         
@@ -205,10 +201,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const response = await fetch(`${API_BASE}/api/auth/signup/`, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': token,
-        },
+        headers: getMutatingHeaders({ 'X-CSRFToken': token }),
         body: JSON.stringify({ 
           username, 
           password, 
@@ -241,9 +234,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const response = await fetch(`${API_BASE}/api/auth/forgot-password/`, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getMutatingHeaders(),
         body: JSON.stringify({ email }),
       });
 
@@ -263,14 +254,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Odhlásenie
   const logout = async (): Promise<void> => {
     try {
-      await fetch(`${API_BASE}/api/auth/logout/`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': csrfToken,
-        },
-      });
+    await fetch(`${API_BASE}/api/auth/logout/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: getMutatingHeaders({ 'X-CSRFToken': csrfToken }),
+    });
     } catch (error) {
       console.error('Logout error:', error);
     } finally {

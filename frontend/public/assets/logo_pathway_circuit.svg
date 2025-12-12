@@ -1,0 +1,61 @@
+<svg width="1200" height="600" viewBox="0 0 1200 600" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Pathway Circuit logo concept</title>
+  <desc id="desc">Three parallel industrial cables converging into a connector block, with a highlighted routed path.</desc>
+  <defs>
+    <linearGradient id="cableFade" x1="180" y1="300" x2="820" y2="300" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C5CBD3" stop-opacity="0.95" />
+      <stop offset="0.5" stop-color="#C5CBD3" stop-opacity="0.8" />
+      <stop offset="1" stop-color="#C5CBD3" stop-opacity="0.95" />
+    </linearGradient>
+    <clipPath id="clip">
+      <rect x="80" y="120" width="1040" height="300" rx="48" />
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#clip)">
+    <path d="M200 220H800" stroke="url(#cableFade)" stroke-width="22" stroke-linecap="round" />
+    <path d="M200 300H800" stroke="url(#cableFade)" stroke-width="22" stroke-linecap="round" />
+    <path d="M200 380H800" stroke="url(#cableFade)" stroke-width="22" stroke-linecap="round" />
+
+    <path d="M320 220 C420 220 520 220 620 252 S760 320 820 320" stroke="#F16A1B" stroke-width="16" stroke-linecap="round" stroke-linejoin="round" />
+
+    <circle cx="320" cy="220" r="10" fill="#F16A1B" />
+    <circle cx="540" cy="236" r="8" fill="#F16A1B" />
+    <circle cx="660" cy="280" r="7" fill="#F16A1B" />
+    <circle cx="760" cy="310" r="6" fill="#F16A1B" />
+  </g>
+
+  <rect x="800" y="170" width="140" height="260" rx="28" fill="#121212" />
+  <rect x="810" y="180" width="120" height="240" rx="22" fill="#161616" />
+
+  <g fill="#C5CBD3">
+    <circle cx="840" cy="210" r="8" />
+    <circle cx="880" cy="210" r="8" />
+    <circle cx="920" cy="210" r="8" />
+
+    <circle cx="840" cy="250" r="8" />
+    <circle cx="880" cy="250" r="8" />
+    <circle cx="920" cy="250" r="8" />
+
+    <circle cx="840" cy="290" r="8" />
+    <circle cx="880" cy="290" r="8" />
+    <circle cx="920" cy="290" r="8" />
+
+    <circle cx="840" cy="330" r="8" />
+    <circle cx="880" cy="330" r="8" />
+    <circle cx="920" cy="330" r="8" />
+  </g>
+
+  <rect x="940" y="230" width="60" height="140" rx="18" fill="#F16A1B" />
+
+  <text x="600" y="500" text-anchor="middle" font-family="Inter, 'Segoe UI', sans-serif" font-size="42" font-weight="700" letter-spacing="6" fill="#121212">
+    INDUSTRIAL CABLING
+  </text>
+  <text x="600" y="540" text-anchor="middle" font-family="Inter, 'Segoe UI', sans-serif" font-size="24" letter-spacing="4" fill="#8A9099">
+    PATHWAY CIRCUIT CONCEPT
+  </text>
+</svg>
+
+
+
+

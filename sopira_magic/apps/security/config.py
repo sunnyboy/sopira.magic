@@ -24,7 +24,7 @@ _RAW_SECURITY_CONFIG_MATRIX: Dict[EnvironmentType, EnvironmentConfig] = {
         "env_type": EnvironmentType.LOCAL,
         "security_level": SecurityLevel.MINIMAL,
         "force_https": False,
-        "allowed_hosts": ["localhost", "127.0.0.1", "0.0.0.0"],
+        "allowed_hosts": ["localhost", "127.0.0.1", "0.0.0.0", "testserver"],
         "cors": {
             "allowed_origins": [
                 "http://localhost:5173",

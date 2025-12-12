@@ -238,8 +238,8 @@ Každý UI element môže byť zapnutý/vypnutý:
   
   // Pagination
   pagination: {
-    defaultPageSize: 50,
-    pageSizeOptions: [10, 25, 50, 100, 250, 500],
+    defaultPageSize: 5,
+    pageSizeOptions: [5, 10, 25, 50, 100, 250, 500],
   },
   
   // Empty state

@@ -1,10 +1,10 @@
-//*........................................................
+//*.............................................................................
 //*       www/thermal_eye_ui/src/components/MyTable/MyTable.tsx
 //*       Unified table component - orchestrates all table features
 //*       
 //*       Purpose: Single component pre všetky tabuľky
 //*       Architecture: Composer pattern - skladá existujúce shadcn komponenty
-//*........................................................
+//*.............................................................................
 
 import React from 'react';
 import * as TI from '@/components/ui_custom/table/tableImports';
@@ -14,7 +14,6 @@ import { getCsrfToken } from '@/utils/csrf';
 import type { MyTableConfig } from './MyTableTypes';
 import { DEFAULT_MY_TABLE_CONFIG } from './MyTableTypes';
 import { useMyTableData } from './useMyTableData';
-import type { FieldFactoryContext } from '@/components/ui_custom/table/fieldFactory';
 import { TagEditor } from '@/components/TagEditor';
 import {
   matrixToFieldConfigs,
@@ -23,6 +22,7 @@ import {
   matrixToFiltersFields,
 } from './MyTableHelpers';
 import { useSnapshot } from '@/hooks/useSnapshot';
+import { useTableState, useTableColumnsState, useTableFiltersState } from '@/hooks/useMyState';
 import { getModelEndpoint, loadModelMetadata, getDefaultOrdering, getModelSingular, getOwnershipField } from '@/config/modelMetadata';
 import { SaveStateModal } from '@/components/modals/SaveStateModal';
 import { LoadStateModal } from '@/components/modals/LoadStateModal';
@@ -35,16 +35,15 @@ import { useAccessRights } from '@/hooks/useAccessRights';
 import { useApi } from '@/hooks/useApi';
 import { API_BASE } from '@/config/api';
 
-/**
- * Option type for FK dropdowns
+/** Option type for FK dropdowns
  */
 type Option = { id: string; label: string };
 
-/**
- * Helper: Get singular model name from tableName or API endpoint
- * Example: 'Locations' -> 'Location', '/api/locations/' -> 'Location'
+/** Helper: Get singular model name from tableName or API endpoint
  * 
+ * Example: 'Locations' -> 'Location', '/api/locations/' -> 'Location'
  * Uses tableName first (most reliable), then falls back to endpoint conversion.
+ * #TODO_SOPIRA.MAGIC: toto si myslim ze je zbytocne, lebo singular/plural uz generujem priamo z modelov
  */
 function getSingularNameFromEndpoint(apiEndpoint: string, tableName?: string): string {
   // First, try to use tableName if provided (e.g., 'Locations' -> 'Location')
@@ -111,63 +110,6 @@ function getSingularNameFromEndpoint(apiEndpoint: string, tableName?: string): s
 }
 
 /**
- * Helper: Fetch all options from API (pagination-aware)
- * Handles pagination automatically and returns deduplicated options
- */
-async function fetchAllOptions(endpoint: string, params: Record<string, string>): Promise<Option[]> {
-  const pageSize = 500; // DRF max_page_size
-  let page = 1;
-  let out: Option[] = [];
-  let total = Infinity;
-  
-  while (out.length < total) {
-    const usp = new URLSearchParams({ ...params, page: String(page), page_size: String(pageSize) });
-    // endpoint already contains full path like '/api/factories'
-    const url = API_BASE 
-      ? `${API_BASE}${endpoint}?${usp.toString()}`
-      : `${endpoint}?${usp.toString()}`;
-    
-    try {
-      const res = await fetch(url, { credentials: 'include' });
-      
-      if (!res.ok) {
-        // For 400/404 - return empty array silently
-        if (res.status === 400 || res.status === 404) {
-          return [];
-        }
-        // For 500 errors, throw
-        if (res.status === 500) {
-          const error: any = new Error(`HTTP ${res.status}`);
-          error.status = 500;
-          throw error;
-        }
-        return [];
-      }
-      
-      const data = await res.json();
-      const results = (data.results || []) as any[];
-      total = Number(data.count ?? results.length);
-      
-      out = out.concat(results.map((o: any) => ({
-        id: String(o.id),
-        label: `${o.name ?? o.title ?? o.code ?? o.id}${o.code ? ` (${o.code})` : ''}`,
-      })));
-      
-      if (!results.length) break;
-      page += 1;
-    } catch (error) {
-      // Network/parsing errors - return empty array silently
-      return [];
-    }
-  }
-  
-  // Deduplicate by id
-  const map = new Map<string, Option>();
-  out.forEach(o => { if (!map.has(o.id)) map.set(o.id, o); });
-  return Array.from(map.values());
-}
-
-/**
  * MyTable - Unified table component
  * 
  * @example
@@ -183,7 +125,7 @@ async function fetchAllOptions(endpoint: string, params: Record<string, string>)
  * }} />
  * ```
  */
-export function MyTable<T extends Record<string, any>>({
+export function MyTable<T extends { id: string | number } & Record<string, any>>({
   config,
 }: {
   config: MyTableConfig<T>;
@@ -200,7 +142,6 @@ export function MyTable<T extends Record<string, any>>({
     
     // Convert matrix to fields, columns, filters
     const generatedFields = matrixToFieldConfigs(config.fieldsMatrix);
-    console.log('[MyTable] Generated fields:', generatedFields.map(f => ({ key: f.key, type: f.type, options: f.options?.length })));
     const generatedColumnsFields = matrixToColumnsFields(config.fieldsMatrix);
     const generatedColumnOrder = matrixToColumnOrder(config.fieldsMatrix);
     const generatedFiltersFields = matrixToFiltersFields(config.fieldsMatrix);
@@ -258,6 +199,7 @@ export function MyTable<T extends Record<string, any>>({
     pagination: { ...DEFAULT_MY_TABLE_CONFIG.pagination, ...processedConfig.pagination },
     multiLine: { ...DEFAULT_MY_TABLE_CONFIG.multiLine, ...processedConfig.multiLine },
     emptyState: { ...DEFAULT_MY_TABLE_CONFIG.emptyState, ...processedConfig.emptyState },
+    useMyState: processedConfig.useMyState ?? false,
   } as Required<MyTableConfig<T>>;
 
   // ============================================
@@ -302,13 +244,22 @@ export function MyTable<T extends Record<string, any>>({
   const [globalFilter, setGlobalFilter] = TI.useState<string>('');
   const [globalFilterInput, setGlobalFilterInput] = TI.useState('');
   const debouncedGlobalFilter = TI.useDebounced(globalFilterInput, cfg.globalSearch.debounceMs);
-  const [searchTerms, setSearchTerms] = TI.useState<string[]>([]);
+  const [searchMode, setSearchMode] = TI.useState<'simple' | 'advanced'>(cfg.globalSearch.advancedSearch ? 'advanced' : 'simple');
+  const [approximateSearch, setApproximateSearch] = TI.useState(false);
+  const isAdvancedSearch = searchMode === 'advanced';
+  const searchPlaceholder = TI.useMemo(() => {
+    if (cfg.globalSearch.placeholder) return cfg.globalSearch.placeholder;
+    return isAdvancedSearch
+      ? 'Pokročilé vyhľadávanie (AND/OR/NOT, +/-, "fráza")'
+      : 'Hľadaj...';
+  }, [cfg.globalSearch.placeholder, isAdvancedSearch]);
+
   
   // Table state (sorting, filtering, pagination)
   const [sorting, setSorting] = TI.useState<TI.SortingState>([]);
   const [columnFilters, setColumnFilters] = TI.useState<TI.ColumnFiltersState>([]);
-  const [pageIndex, setPageIndex] = TI.useState(0);
-  const [pageSize, setPageSize] = TI.useState(cfg.pagination.defaultPageSize);
+  const [pageIndex, setPageIndex] = TI.useState<number>(0);
+  const [pageSize, setPageSize] = TI.useState<number>(cfg.pagination.defaultPageSize || 10);
   
   // Show only selected mode
   const [showOnlySelected, setShowOnlySelected] = TI.useState(false);
@@ -329,17 +280,22 @@ export function MyTable<T extends Record<string, any>>({
     const prevKey = JSON.stringify([...prevSelectedFactoriesRef.current].sort());
     if (currentKey === prevKey) return;
     
+    console.log('[MyTable] Factory scope effect triggered, selectedFactories:', selectedFactories);
     prevSelectedFactoriesRef.current = [...selectedFactories];
     
     setColumnFilters((prev) => {
+      console.log('[MyTable] Factory scope effect - prev filters:', prev);
       // Use ownership_field from metadata (SSOT) instead of hardcode 'factory'
       const others = prev.filter((f) => f.id !== ownershipFilterField);
       // Backend automatically applies scope - frontend doesn't need to filter
       // This code is kept for backward compatibility but backend handles scoping
       if (selectedFactories.length > 0) {
-        return [{ id: ownershipFilterField, value: selectedFactories }, ...others];
+        const newFilters = [{ id: ownershipFilterField, value: selectedFactories }, ...others];
+        console.log('[MyTable] Factory scope effect - new filters:', newFilters);
+        return newFilters;
       }
       // No factories selected - remove filter (backend handles scoping automatically)
+      console.log('[MyTable] Factory scope effect - returning others only:', others);
       return others;
     });
     setPageIndex(0);
@@ -364,18 +320,26 @@ export function MyTable<T extends Record<string, any>>({
   // Debug state (len pre superuserov)
   const [showDebugInfo, setShowDebugInfo] = TI.useState(false);
   
-  // State preset modals
+  // State preset modals (legacy - for non-myState mode)
   const [showSaveStateModal, setShowSaveStateModal] = TI.useState(false);
   const [showLoadStateModal, setShowLoadStateModal] = TI.useState(false);
   const [statePresetComponent, setStatePresetComponent] = TI.useState<'columns' | 'filters'>('columns');
   
-  // Active preset names (for display in panels)
-  const [activeColumnsPresetName, setActiveColumnsPresetName] = TI.useState<string | null>(null);
-  const [activeFiltersPresetName, setActiveFiltersPresetName] = TI.useState<string | null>(null);
+  // Separate modal states for myState mode (independent panel presets)
+  const [showColumnsSaveModal, setShowColumnsSaveModal] = TI.useState(false);
+  const [showColumnsLoadModal, setShowColumnsLoadModal] = TI.useState(false);
+  const [showFiltersSaveModal, setShowFiltersSaveModal] = TI.useState(false);
+  const [showFiltersLoadModal, setShowFiltersLoadModal] = TI.useState(false);
+  
+  // Active preset names (for display in panels) - local state for legacy mode
+  const [activeColumnsPresetNameLocal, setActiveColumnsPresetNameLocal] = TI.useState<string | null>(null);
+  const [activeFiltersPresetNameLocal, setActiveFiltersPresetNameLocal] = TI.useState<string | null>(null);
   
   // ============================================
   // BUILD QUERY PARAMS (for server-side fetching)
   // ============================================
+  const useSearchService = (cfg.globalSearch.useSearchService ?? false) && Boolean(globalFilterInput.trim());
+
   const queryParams = TI.useMemo(() => {
     // Fix: use fallback/defaults for pageIndex and pageSize in case they are undefined/null
     const params: Record<string, string | number> = {
@@ -390,7 +354,7 @@ export function MyTable<T extends Record<string, any>>({
     }
     
     // Global search
-    if (globalFilter) {
+    if (!useSearchService && globalFilter) {
       params.search = globalFilter;
     }
     
@@ -464,7 +428,29 @@ export function MyTable<T extends Record<string, any>>({
     });
     
     return params;
-  }, [pageIndex, pageSize, sorting, globalFilter, columnFilters, cfg.fieldsMatrix]);
+  }, [pageIndex, pageSize, sorting, globalFilter, columnFilters, cfg.fieldsMatrix, useSearchService]);
+
+  const searchQueryParams = TI.useMemo(() => {
+    const params: Record<string, string | number> = {
+      ...queryParams,
+      view: viewName,
+      q: globalFilter,
+      mode: isAdvancedSearch ? 'advanced' : 'simple',
+      approximate: approximateSearch ? '1' : '0',
+    };
+    delete params.search; // search sa pri ES posiela ako 'q'
+    return params;
+  }, [queryParams, viewName, globalFilter, isAdvancedSearch, approximateSearch]);
+
+  const transformSearchResults = TI.useCallback((records: any[]) => {
+    return records.map((hit: any) => {
+      const row = hit?.data ?? hit;
+      if (hit?.highlight) {
+        (row as any).__highlight = hit.highlight;
+      }
+      return row;
+    });
+  }, []);
 
   // ============================================
   // DATA FETCHING (server-side)
@@ -475,14 +461,21 @@ export function MyTable<T extends Record<string, any>>({
     isLoading,
     error: fetchError,
     refetch,
-    addRecord,
     updateRecord,
     updateFullRecord,
-    deleteRecords,
   } = useMyTableData<T>({
-    endpoint: cfg.apiEndpoint,
-    queryParams,
+    endpoint: useSearchService ? '/api/search/' : cfg.apiEndpoint,
+    queryParams: useSearchService ? searchQueryParams : queryParams,
+    transformResponse: useSearchService ? transformSearchResults : undefined,
   });
+
+  const fieldConfigMap = TI.useMemo<Record<string, TI.FieldConfig<T>>>(() => {
+    const map: Record<string, TI.FieldConfig<T>> = {};
+    cfg.fields.forEach((f) => {
+      map[String(f.key)] = f;
+    });
+    return map;
+  }, [cfg.fields]);
 
   // MultiLine mode state (false = compact/single-line, true = expanded/multi-line)
   const [isMultiLine, setIsMultiLine] = TI.useState(cfg.multiLine.enabled || false);
@@ -538,34 +531,21 @@ export function MyTable<T extends Record<string, any>>({
    */
   const getScopedOptions = TI.useCallback(async (
     fieldKey: string,
-    factoryId?: string // DEPRECATED: Backend automatically applies scope, this parameter is ignored
+    _factoryId?: string // DEPRECATED: Backend automatically applies scope, this parameter is ignored
   ): Promise<Option[]> => {
-    console.log(`[MyTable.getScopedOptions] CALLED for ${fieldKey} (backend automatically applies scope)`);
-    const cacheKey = `${fieldKey}`; // Cache key no longer includes factoryId - backend handles scoping
-    
-    // Return cached result if available
+    const cacheKey = `${fieldKey}`;
     if (scopedCache.has(cacheKey)) {
-      const cached = scopedCache.get(cacheKey)!;
-      console.log(`[MyTable.getScopedOptions] Returning from cache: ${cached.length} options`);
-      return cached;
+      return scopedCache.get(cacheKey)!;
     }
-    
-    // Fetch options - backend automatically applies scope based on active scope (Dashboard selection)
     try {
-      console.log(`[MyTable.getScopedOptions] Fetching from API for ${cacheKey} (backend applies scope automatically)`);
       const { loadFKOptionsFromCache } = await import('../../services/fkCacheService');
-      // Backend automatically applies scope - no need to pass factoryIds
       const options = await loadFKOptionsFromCache(fieldKey, []);
-      
-      // Convert to Option format - preserve all fields (code, name, human_id, etc.) for template support
       const formattedOptions: Option[] = options.map(opt => ({
         id: opt.id,
         label: opt.label,
-        // Preserve individual fields for template string support (SSOT from Camera.tsx)
         ...(opt.code !== undefined && { code: opt.code }),
         ...(opt.name !== undefined && { name: opt.name }),
         ...(opt.human_id !== undefined && { human_id: opt.human_id }),
-        // Preserve any other fields that might be in the option
         ...Object.keys(opt).reduce((acc, key) => {
           if (key !== 'id' && key !== 'label' && opt[key] !== undefined) {
             acc[key] = opt[key];
@@ -573,17 +553,12 @@ export function MyTable<T extends Record<string, any>>({
           return acc;
         }, {} as Record<string, any>)
       }));
-      
-      console.log(`[MyTable.getScopedOptions] Fetched ${formattedOptions.length} options from API`);
-      
-      // Cache result
       scopedCache.set(cacheKey, formattedOptions);
       return formattedOptions;
-    } catch (error) {
-      console.error(`[MyTable.getScopedOptions] ERROR for ${fieldKey}:`, error);
+    } catch (_error) {
       return [];
     }
-  }, []); // No dependencies needed - uses dynamic import
+  }, []);
 
   // ============================================
   // TAG SUGGESTIONS CACHE
@@ -630,7 +605,6 @@ export function MyTable<T extends Record<string, any>>({
       // TagsCell wrapper component
       const TagsCell: React.ComponentType<{ row: T; value: string[]; onSave: (tags: string[]) => void }> = ({ row, value, onSave }) => {
         const [suggestions, setSuggestions] = React.useState<string[]>([]);
-        const [isLoading, setIsLoading] = React.useState(true);
         
         // Get ownership field value from row using ownership_field from metadata (SSOT)
         // Map ownership_field (e.g., "factory_id") to row property (e.g., "factory")
@@ -644,15 +618,9 @@ export function MyTable<T extends Record<string, any>>({
         React.useEffect(() => {
           const factoryId = ownershipFieldValue || (selectedFactories.length > 0 ? selectedFactories[0] : null);
           if (factoryId) {
-            setIsLoading(true);
             getTagSuggestions(factoryId, model).then(sugg => {
               setSuggestions(sugg);
-              setIsLoading(false);
-            }).catch(() => {
-              setIsLoading(false);
-            });
-          } else {
-            setIsLoading(false);
+            }).catch(() => {});
           }
         }, [ownershipFieldValue, selectedFactories, model, getTagSuggestions]);
         
@@ -689,19 +657,20 @@ export function MyTable<T extends Record<string, any>>({
         apiEndpoint: cfg.apiEndpoint,
         editingCell,
         setEditingCell,
-        updateField: (recordId, fieldName, newValue) => {
+        updateField: (recordId: string | number, fieldName: keyof T, newValue: T[keyof T]) => {
           updateRecord(recordId, { [fieldName]: newValue } as Partial<T>);
         },
         updateFullRecord,
-        handleError: (recordId, errorData) => {
+        handleError: (recordId: string | number, errorData: unknown) => {
           showError({
+            operation: 'save',
             message: `Failed to update record ${recordId}`,
             details: errorData,
           });
         },
         getCsrfToken,
         searchTerm: globalFilter,
-        highlightText: (text, searchTerm) => {
+        highlightText: (text: string, searchTerm: string) => {
           const terms = TI.extractSearchTerms(searchTerm);
           return TI.highlightText(text, terms);
         },
@@ -711,13 +680,7 @@ export function MyTable<T extends Record<string, any>>({
         onScopeCacheUpdate: () => setRenderTrigger(prev => prev + 1),
         TagsCell, // Tag editor component for inline editing
       };
-      console.log('[MyTable] fieldFactoryContext created:', {
-        hasGetScopedOptions: ctx.getScopedOptions !== undefined,
-        hasScopedCache: ctx.scopedCache !== undefined,
-        hasTagsCell: ctx.TagsCell !== undefined,
-        getScopedOptionsType: typeof ctx.getScopedOptions,
-        scopedCacheType: typeof ctx.scopedCache,
-      });
+      // debug disabled
       return ctx;
     },
     [cfg.apiEndpoint, cfg.tableName, cfg.fieldsMatrix, editingCell, setEditingCell, updateRecord, updateFullRecord, globalFilter, showError, getCsrfToken, fkOptions, renderTrigger, getScopedOptions, getTagSuggestions]
@@ -737,6 +700,14 @@ export function MyTable<T extends Record<string, any>>({
     isIndeterminate,
     selectedCount,
   } = TI.useRowSelection<T>();
+
+const rowSelectionState = TI.useMemo<Record<string, boolean>>(() => {
+  const obj: Record<string, boolean> = {};
+  selectedRows.forEach((id) => {
+    obj[String(id)] = true;
+  });
+  return obj;
+}, [selectedRows]);
 
   // ============================================
   // COLUMNS - ALL via FieldFactory (DRY!)
@@ -828,13 +799,7 @@ export function MyTable<T extends Record<string, any>>({
   // All columns generated via FieldFactory (DRY - single source of truth!)
   const allColumns = TI.useMemo(
     () => {
-      console.log('[MyTable] allColumns useMemo called', {
-        allFieldConfigsCount: allFieldConfigs.length,
-        fkFields: allFieldConfigs.filter(f => f.type === 'fk').map(f => ({ key: f.key, scopedByFactory: f.scopedByFactory })),
-      });
       const columns = TI.createTableColumns(allFieldConfigs, extendedFieldContext, columnHelper);
-      console.log('[MyTable] allColumns created', { columnsCount: columns.length });
-      
       // Apply custom cell renderers if provided
       if (cfg.customCellRenderers) {
         return columns.map((col) => {
@@ -878,9 +843,62 @@ export function MyTable<T extends Record<string, any>>({
   // Use first selected factory for snapshot (backward compatibility)
   // Backend automatically applies scope, but snapshot still needs factory for state storage
   const snapshotFactory = selectedFactories.length > 0 ? selectedFactories[0] : null;
-  const snapshot = useSnapshot(snapshotFactory);
   
-  // Local column state (no backend calls - persistence via TableStatePreset)
+  // If useMyState is enabled, disable snapshot (mystate handles persistence)
+  const shouldDisableSnapshot = processedConfig.disableSnapshot || cfg.useMyState;
+  const snapshot: any = shouldDisableSnapshot
+    ? {
+        snapshot: null,
+        getTableState: (_: string) => ({} as any),
+        updateTable: (_: string, __: any) => {},
+        refresh: async () => {},
+      }
+    : useSnapshot(snapshotFactory);
+  
+  // ============================================
+  // MYSTATE - New state management (LocalStorage + API presets)
+  // ============================================
+  // Always call hooks (Rules of Hooks), but only use result if useMyState is enabled
+  // Using a stable key to avoid re-creating state on each render
+  const myStateHook = useTableState(cfg.storageKey);
+  const columnsMyStateHook = useTableColumnsState(cfg.storageKey);
+  const filtersMyStateHook = useTableFiltersState(cfg.storageKey);
+  
+  // Only expose hooks if useMyState is enabled
+  const myState = cfg.useMyState ? myStateHook : null;
+  const columnsMyState = cfg.useMyState ? columnsMyStateHook : null;
+  const filtersMyState = cfg.useMyState ? filtersMyStateHook : null;
+  
+  // Computed active preset names - prefer myState if available
+  const activeColumnsPresetName = columnsMyState?.activePresetName ?? activeColumnsPresetNameLocal;
+  const activeFiltersPresetName = filtersMyState?.activePresetName ?? activeFiltersPresetNameLocal;
+  
+  // ============================================
+  // MODIFICATION TRACKING FOR PRESET PANELS
+  // ============================================
+  // Helper to deep compare filter arrays
+  const areFiltersEqual = TI.useCallback((a: any[], b: any[]): boolean => {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    return JSON.stringify(a) === JSON.stringify(b);
+  }, []);
+  
+  // Helper to deep compare column state objects
+  const areColumnsEqual = TI.useCallback((current: any, loaded: any): boolean => {
+    if (!loaded) return true; // No loaded preset = not modified
+    return JSON.stringify({
+      columnVisibility: current.columnVisibility,
+      columnOrder: current.columnOrder,
+      columnSizing: current.columnSizing,
+    }) === JSON.stringify({
+      columnVisibility: loaded.columnVisibility,
+      columnOrder: loaded.columnOrder,
+      columnSizing: loaded.columnSizing,
+    });
+  }, []);
+  
+  // Local column state
   const [columnVisibility, setColumnVisibility] = TI.useState<Record<string, boolean>>(defaultVisibility);
   const [columnOrder, setColumnOrder] = TI.useState<string[]>(cfg.columns.defaultOrder || []);
   // Start with empty sizing - will be loaded from snapshot in useEffect
@@ -922,14 +940,107 @@ export function MyTable<T extends Record<string, any>>({
     resetColumnSizing,
   ]);
   
+  // ============================================
+  // PRESET MODIFICATION DETECTION & HANDLERS
+  // ============================================
+  
+  // Check if filters have been modified from loaded preset
+  const isFiltersModified = TI.useMemo(() => {
+    if (!filtersMyState?.loadedPresetData || !filtersMyState?.activePresetId) {
+      console.log('[MyTable] isFiltersModified: no loadedPresetData or activePresetId', {
+        loadedPresetData: filtersMyState?.loadedPresetData,
+        activePresetId: filtersMyState?.activePresetId,
+      });
+      return false;
+    }
+    const loaded = filtersMyState.loadedPresetData;
+    const currentFilters = columnFilters || [];
+    const loadedFilters = loaded.columnFilters || [];
+    const currentGlobal = globalFilterInput || '';
+    const loadedGlobal = loaded.globalFilter || '';
+    const filtersEqual = areFiltersEqual(currentFilters, loadedFilters);
+    const globalEqual = currentGlobal === loadedGlobal;
+    const isModified = !filtersEqual || !globalEqual;
+    console.log('[MyTable] isFiltersModified:', isModified, {
+      currentFilters,
+      loadedFilters,
+      filtersEqual,
+      currentGlobal,
+      loadedGlobal,
+      globalEqual,
+    });
+    return isModified;
+  }, [filtersMyState?.loadedPresetData, filtersMyState?.activePresetId, columnFilters, globalFilterInput, areFiltersEqual]);
+  
+  // Check if columns have been modified from loaded preset
+  const isColumnsModified = TI.useMemo(() => {
+    if (!columnsMyState?.loadedPresetData || !columnsMyState?.activePresetId) return false;
+    const loaded = columnsMyState.loadedPresetData;
+    return !areColumnsEqual({
+      columnVisibility,
+      columnOrder,
+      columnSizing,
+    }, loaded);
+  }, [columnsMyState?.loadedPresetData, columnsMyState?.activePresetId, columnVisibility, columnOrder, columnSizing, areColumnsEqual]);
+  
+  // Handler to revert filters to loaded preset
+  const handleRevertFilters = TI.useCallback(() => {
+    if (!filtersMyState) return;
+    const revertedData = filtersMyState.revertToLoadedPreset();
+    if (revertedData) {
+      // Apply reverted data to local state
+      setColumnFilters(revertedData.columnFilters || []);
+      setGlobalFilterInput(revertedData.globalFilter || '');
+    }
+  }, [filtersMyState]);
+  
+  // Handler to save filter modifications to existing preset
+  const handleSaveFilterModification = TI.useCallback(async () => {
+    if (!filtersMyState) return;
+    const filtersState = {
+      columnFilters,
+      globalFilter: globalFilterInput,
+    };
+    await filtersMyState.updatePreset(filtersState);
+  }, [filtersMyState, columnFilters, globalFilterInput]);
+  
+  // Handler to revert columns to loaded preset
+  const handleRevertColumns = TI.useCallback(() => {
+    if (!columnsMyState) return;
+    const revertedData = columnsMyState.revertToLoadedPreset();
+    if (revertedData) {
+      // Apply reverted data to local state
+      if (revertedData.columnVisibility) setColumnVisibility(revertedData.columnVisibility);
+      if (revertedData.columnOrder) setColumnOrder(revertedData.columnOrder);
+      if (revertedData.columnSizing) setColumnSizing(revertedData.columnSizing);
+    }
+  }, [columnsMyState]);
+  
+  // Handler to save column modifications to existing preset
+  const handleSaveColumnModification = TI.useCallback(async () => {
+    if (!columnsMyState) return;
+    const columnsState = {
+      columnVisibility,
+      columnOrder,
+      columnSizing,
+    };
+    await columnsMyState.updatePreset(columnsState);
+  }, [columnsMyState, columnVisibility, columnOrder, columnSizing]);
 
   // ============================================
   // FILTER STATE (for save/load presets)
   // ============================================
-  const filterState = TI.useFilterState(`${cfg.storageKey}-filters`);
+  const filterState = processedConfig.disableFilterState
+    ? {
+        savedFilters: [],
+        saveFilter: async () => {},
+        deleteFilter: async () => {},
+        getDefaultFilterName: (_tableName: string) => "",
+        loading: false,
+      }
+    : TI.useFilterState(`${cfg.storageKey}-filters`);
 
   // Get table-specific state from snapshot
-  const tableState = snapshot.getTableState(cfg.storageKey);
   
   // Track if initial state has been loaded from snapshot
   const hasLoadedStateRef = TI.useRef(false);
@@ -969,7 +1080,6 @@ export function MyTable<T extends Record<string, any>>({
           filteredSizing[key] = (value as any).size;
         }
       });
-      console.log('🔍 Loading sizing from snapshot:', JSON.stringify(filteredSizing, null, 2));
       columnState.setColumnSizing(filteredSizing);
     }
     
@@ -1005,8 +1115,10 @@ export function MyTable<T extends Record<string, any>>({
     
     // Apply pagination - use local setters (table not initialized yet)
     if (state.pagination) {
-      setPageSize(state.pagination.pageSize);
-      setPageIndex(state.pagination.pageIndex);
+      const nextPageSize = typeof state.pagination.pageSize === 'number' ? state.pagination.pageSize : (cfg.pagination.defaultPageSize || 10);
+      const nextPageIndex = typeof state.pagination.pageIndex === 'number' ? state.pagination.pageIndex : 0;
+      setPageSize(nextPageSize);
+      setPageIndex(nextPageIndex);
     }
     
     // Apply row selection
@@ -1016,7 +1128,6 @@ export function MyTable<T extends Record<string, any>>({
     
     // Mark as loaded
     hasLoadedStateRef.current = true;
-    console.log(`✓ Loaded state for ${cfg.storageKey} from snapshot`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot.snapshot, hasLoadedStateRef.current]); // Re-run when snapshot changes OR hasLoadedStateRef is reset
   
@@ -1055,14 +1166,26 @@ export function MyTable<T extends Record<string, any>>({
     if (stateChanged && Object.keys(prevState).length > 0 && !isLoadingPresetRef.current) {
       // Clear columns preset if columns-related state changed
       if (visibilityChanged || orderChanged || sizingChanged) {
-        setActiveColumnsPresetName(null);
+        if (columnsMyState) {
+          columnsMyState.setActivePresetName(null);
+        } else {
+          setActiveColumnsPresetNameLocal(null);
+        }
       }
       // Clear filters preset if filters-related state changed
       if (filtersChanged || globalFilterChanged) {
-        setActiveFiltersPresetName(null);
+        if (filtersMyState) {
+          filtersMyState.setActivePresetName(null);
+        } else {
+          setActiveFiltersPresetNameLocal(null);
+        }
       }
     }
     
+    if (!stateChanged) {
+      return;
+    }
+
     // Update previous state ref
     prevStateRef.current = {
       visibility: columnState.columnVisibility,
@@ -1081,9 +1204,6 @@ export function MyTable<T extends Record<string, any>>({
       rowSelectionRecord[id] = true;
     });
     
-    // 🔍 DEBUG: Log raw columnSizing state from TanStack Table
-    console.log('🔍 RAW columnSizing from TanStack:', JSON.stringify(columnState.columnSizing, null, 2));
-    
     // Filter sizing to only include size values, not minSize/maxSize
     // (minSize/maxSize are config constants, not user state)
     const filteredSizing: Record<string, number> = {};
@@ -1094,8 +1214,6 @@ export function MyTable<T extends Record<string, any>>({
         filteredSizing[key] = (value as any).size;
       }
     });
-    
-    console.log('🔍 FILTERED sizing for snapshot:', JSON.stringify(filteredSizing, null, 2));
     
     snapshot.updateTable(cfg.storageKey, {
       visibility: columnState.columnVisibility,
@@ -1122,6 +1240,96 @@ export function MyTable<T extends Record<string, any>>({
     selectedRows,
     snapshot.updateTable,  // Stable function reference
     cfg.storageKey
+  ]);
+  
+  // ============================================
+  // MYSTATE - Load initial state from LocalStorage (if useMyState enabled)
+  // ============================================
+  const hasLoadedMyStateRef = TI.useRef(false);
+  
+  TI.useEffect(() => {
+    if (!cfg.useMyState || !myState) return;
+    if (hasLoadedMyStateRef.current) return;
+    
+    const state = myState.state;
+    if (!state || Object.keys(state).length === 0) {
+      hasLoadedMyStateRef.current = true;
+      return;
+    }
+    
+    // Apply state from myState
+    if (state.sorting && state.sorting.length > 0) {
+      setSorting(state.sorting);
+    }
+    if (state.columnFilters) {
+      setColumnFilters(state.columnFilters);
+    }
+    if (state.pagination) {
+      if (typeof state.pagination.pageSize === 'number') {
+        setPageSize(state.pagination.pageSize);
+      }
+      if (typeof state.pagination.pageIndex === 'number') {
+        setPageIndex(state.pagination.pageIndex);
+      }
+    }
+    if (state.columnVisibility) {
+      columnState.setColumnVisibility(state.columnVisibility);
+    }
+    if (state.columnOrder) {
+      columnState.setColumnOrder(state.columnOrder);
+    }
+    if (state.columnSizing) {
+      columnState.setColumnSizing(state.columnSizing);
+    }
+    if (state.globalFilter) {
+      setGlobalFilterInput(state.globalFilter);
+    }
+    
+    hasLoadedMyStateRef.current = true;
+  }, [cfg.useMyState, myState?.state]);
+  
+  // ============================================
+  // MYSTATE - Sync state changes to LocalStorage (if useMyState enabled)
+  // ============================================
+  const prevMyStateRef = TI.useRef<any>({});
+  
+  TI.useEffect(() => {
+    if (!cfg.useMyState || !myState) return;
+    if (!hasLoadedMyStateRef.current) return;
+    
+    // Build current state
+    const currentState = {
+      sorting,
+      columnFilters,
+      pagination: { pageSize, pageIndex },
+      columnVisibility: columnState.columnVisibility,
+      columnOrder: columnState.columnOrder,
+      columnSizing: columnState.columnSizing,
+      globalFilter: globalFilterInput,
+    };
+    
+    // Check if state changed
+    const prevState = prevMyStateRef.current;
+    const stateChanged = JSON.stringify(currentState) !== JSON.stringify(prevState);
+    
+    if (!stateChanged) return;
+    
+    // Update ref
+    prevMyStateRef.current = currentState;
+    
+    // Sync to myState (debounced via context)
+    myState.updateState(currentState);
+  }, [
+    cfg.useMyState,
+    myState,
+    sorting,
+    columnFilters,
+    pageSize,
+    pageIndex,
+    columnState.columnVisibility,
+    columnState.columnOrder,
+    columnState.columnSizing,
+    globalFilterInput,
   ]);
   
   // ============================================
@@ -1250,9 +1458,14 @@ export function MyTable<T extends Record<string, any>>({
     return data.filter(row => selectedIds.includes(String(row.id)));
   }, [data, showOnlySelected, selectedRows]);
 
+  const safePageSize = pageSize || cfg.pagination.defaultPageSize || 10;
+  const safePageIndex = typeof pageIndex === 'number' ? pageIndex : 0;
+
   // ============================================
   // TANSTACK TABLE
   // ============================================
+  const manualPagination = !(cfg.pagination?.custom === true);
+
   const table = TI.useReactTable({
     data: displayData,
     columns: allColumns,
@@ -1263,8 +1476,8 @@ export function MyTable<T extends Record<string, any>>({
       columnSizing: columnState.columnSizing,
       columnFilters,
       sorting,
-      pagination: { pageIndex, pageSize },
-      rowSelection: selectedRows,
+      pagination: { pageIndex: safePageIndex, pageSize: safePageSize },
+      rowSelection: rowSelectionState,
     },
     onGlobalFilterChange: setGlobalFilter,
     onColumnVisibilityChange: columnState.setColumnVisibility,
@@ -1283,10 +1496,6 @@ export function MyTable<T extends Record<string, any>>({
           const minSize = fieldConfig.minSize ?? 50;
           const maxSize = fieldConfig.maxSize ?? 1000;
           const constrainedValue = Math.max(minSize, Math.min(maxSize, value));
-          
-          if (constrainedValue !== value) {
-            console.log(`🔒 Constrained column "${key}": ${value} → ${constrainedValue} (min: ${minSize}, max: ${maxSize})`);
-          }
           
           validatedSizing[key] = constrainedValue;
         } else {
@@ -1310,16 +1519,16 @@ export function MyTable<T extends Record<string, any>>({
     // to prevent client-side filtering that would break advanced search logic
     // When manualFiltering: true, TanStack Table should NOT filter locally, but getFilteredRowModel()
     // with globalFilterFn can still apply client-side filtering
-    getFilteredRowModel: cfg.globalSearch?.advancedSearch
+    getFilteredRowModel: isAdvancedSearch
       ? TI.getCoreRowModel()  // Use core model (no filtering) for advanced search
       : TI.getFilteredRowModel(),  // Use filtered model for simple search
     getSortedRowModel: TI.getSortedRowModel(),
     getPaginationRowModel: TI.getPaginationRowModel(),
     // SERVER-SIDE MODE
-    manualPagination: true,
+    manualPagination,
     manualSorting: true,
     manualFiltering: true,
-    pageCount: Math.max(1, Math.ceil(total / pageSize) || 1),
+    pageCount: manualPagination ? Math.max(1, Math.ceil(total / safePageSize) || 1) : undefined,
     columnResizeMode: 'onChange',
     enableColumnResizing: true,
     defaultColumn: {
@@ -1333,7 +1542,7 @@ export function MyTable<T extends Record<string, any>>({
     // CRITICAL: When advancedSearch is enabled, disable client-side filtering
     // Advanced search (AND/OR/NOT/parentheses) must be handled server-side only
     // Client-side 'includesString' filter would break advanced search logic
-    globalFilterFn: cfg.globalSearch?.advancedSearch 
+    globalFilterFn: isAdvancedSearch 
       ? undefined  // Disable client-side filtering for advanced search
       : (cfg.customGlobalFilterFn || 'includesString'),  // Use custom or default for simple search
     filterFns: cfg.customFilterFns,
@@ -1344,11 +1553,11 @@ export function MyTable<T extends Record<string, any>>({
   }, [table]);
 
   // ============================================
+  // ============================================
   // DEBOUNCED SEARCH
   // ============================================
   TI.useEffect(() => {
     setGlobalFilter(debouncedFilter);
-    setSearchTerms(TI.extractSearchTerms(debouncedFilter));
   }, [debouncedFilter]);
 
   // ============================================
@@ -1406,6 +1615,7 @@ export function MyTable<T extends Record<string, any>>({
       TI.toastMessages.recordDeleted(ids.length);
     } catch (err: any) {
       showError({
+        operation: 'delete',
         title: 'Delete Failed',
         message: err.message || 'Failed to delete records',
       });
@@ -1420,25 +1630,17 @@ export function MyTable<T extends Record<string, any>>({
     cfg.callbacks?.onExportXLSX?.();
   }, [cfg.callbacks]);
 
-  const handleExportPDF = TI.useCallback(() => {
-    cfg.callbacks?.onExportPDF?.();
-  }, [cfg.callbacks]);
-
   const handleSelectedCountClick = TI.useCallback(() => {
     // Show only selected records:
     // 1. Get selected row IDs (selectedRows is a Set!)
     const selectedIds = Array.from(selectedRows);
     
-    console.log('[handleSelectedCountClick] Called with:', { selectedIds, selectedRows });
-    
     // 2. If no rows selected, do nothing
     if (selectedIds.length === 0) {
-      console.log('[handleSelectedCountClick] No rows selected, returning');
       return;
     }
     
     // 3. Enable "show only selected" mode
-    console.log('[handleSelectedCountClick] Setting showOnlySelected to true');
     setShowOnlySelected(true);
     
     // 4. Clear all server-side filters
@@ -1459,38 +1661,79 @@ export function MyTable<T extends Record<string, any>>({
   // STATE PRESET HANDLERS
   // ============================================
   
-  // Load saved presets list
+  // Load saved presets list (legacy API - used when useMyState is false)
   const [savedPresets, setSavedPresets] = TI.useState<any[]>([]);
-  const [isLoadingPresets, setIsLoadingPresets] = TI.useState(false);
-  
   const loadSavedPresets = TI.useCallback(async () => {
-    setIsLoadingPresets(true);
+    // If useMyState is enabled, use myState.savedStates instead
+    if (cfg.useMyState && myState) {
+      return; // myState handles its own state loading
+    }
+    
     try {
       const params = new URLSearchParams({
         table_name: cfg.storageKey,
         component: statePresetComponent,
       });
-      console.log(`🔍 Loading presets for table="${cfg.storageKey}" component="${statePresetComponent}"`);
       const response = await api.get(`/api/table-state-presets/?${params.toString()}`);
       const results = response.results || response || [];
-      console.log(`✓ Loaded ${results.length} presets for component="${statePresetComponent}"`);
       setSavedPresets(Array.isArray(results) ? results : []);
     } catch (err) {
       console.error('Failed to load presets:', err);
     } finally {
-      setIsLoadingPresets(false);
     }
-  }, [cfg.storageKey, statePresetComponent, api]);
+  }, [cfg.storageKey, statePresetComponent, api, cfg.useMyState, myState]);
   
   // Load presets when modal opens OR when component type changes
   // This ensures correct component filtering (columns vs filters)
   TI.useEffect(() => {
-    if (showLoadStateModal) {
+    if (showLoadStateModal && !cfg.useMyState) {
       loadSavedPresets();
     }
-  }, [showLoadStateModal, statePresetComponent, loadSavedPresets]);
+  }, [showLoadStateModal, statePresetComponent, loadSavedPresets, cfg.useMyState]);
+  
+  // Get presets list - either from myState or legacy API
+  const presetsForModal = TI.useMemo(() => {
+    if (cfg.useMyState && myState) {
+      // Convert myState savedStates to format expected by LoadStateModal
+      const states = Array.isArray(myState.savedStates) ? myState.savedStates : [];
+      return states.map(preset => ({
+        id: preset.id,
+        preset_name: preset.preset_name,
+        description: preset.description,
+        component: statePresetComponent, // myState stores full state, not component-specific
+        created: preset.created,
+        is_default: preset.is_default,
+        // Mark as mystate preset for handler
+        _isMyState: true,
+      }));
+    }
+    return savedPresets;
+  }, [cfg.useMyState, myState?.savedStates, savedPresets, statePresetComponent]);
   
   const handleSaveState = TI.useCallback(async (name: string, description?: string) => {
+    // If useMyState is enabled, use myState.savePreset
+    if (cfg.useMyState && myState) {
+      // Let the error bubble up to SaveStateModal for display
+      // Modal closes itself on success, shows error on failure
+      await myState.savePreset(name, description);
+      // Update active preset name based on component
+      if (statePresetComponent === 'columns') {
+        if (columnsMyState) {
+          columnsMyState.setActivePresetName(name);
+        } else {
+          setActiveColumnsPresetNameLocal(name);
+        }
+      } else if (statePresetComponent === 'filters') {
+        if (filtersMyState) {
+          filtersMyState.setActivePresetName(name);
+        } else {
+          setActiveFiltersPresetNameLocal(name);
+        }
+      }
+      return;
+    }
+    
+    // Legacy: use old table-state-presets API
     try {
       // Extract current table state from snapshot
       const currentTableState = snapshot.getTableState(cfg.storageKey);
@@ -1527,15 +1770,34 @@ export function MyTable<T extends Record<string, any>>({
     } catch (err: any) {
       TI.toastMessages.presetSaveFailed(err.response?.data?.error);
     }
-  }, [snapshot, cfg.storageKey, statePresetComponent, api, snapshotFactory, loadSavedPresets]);
+  }, [cfg.useMyState, myState, snapshot, cfg.storageKey, statePresetComponent, api, snapshotFactory, loadSavedPresets]);
   
   const handleLoadState = TI.useCallback(async (preset: any) => {
+    // If useMyState is enabled, use myState.loadPreset
+    if (cfg.useMyState && myState && preset._isMyState) {
+      myState.loadPreset(preset);
+      setShowLoadStateModal(false);
+      // Set active preset name (legacy mode sets both, new mode should use component-specific)
+      if (columnsMyState) {
+        columnsMyState.setActivePresetName(preset.preset_name);
+      } else {
+        setActiveColumnsPresetNameLocal(preset.preset_name);
+      }
+      if (filtersMyState) {
+        filtersMyState.setActivePresetName(preset.preset_name);
+      } else {
+        setActiveFiltersPresetNameLocal(preset.preset_name);
+      }
+      return;
+    }
+    
+    // Legacy: use old table-state-presets API
     try {
       // Set flag to prevent clearing preset names during load
       isLoadingPresetRef.current = true;
       
       // Call recall endpoint - backend will merge into snapshot
-      const response = await api.post(`/api/table-state-presets/${preset.id}/recall/`);
+      await api.post(`/api/table-state-presets/${preset.id}/recall/`);
       
       // Refresh snapshot from server to get updated state
       await snapshot.refresh();
@@ -1548,9 +1810,9 @@ export function MyTable<T extends Record<string, any>>({
       // Wait for React to process state updates and useEffect to run
       setTimeout(() => {
         if (preset.component === 'columns') {
-          setActiveColumnsPresetName(preset.preset_name);
+          setActiveColumnsPresetNameLocal(preset.preset_name);
         } else if (preset.component === 'filters') {
-          setActiveFiltersPresetName(preset.preset_name);
+          setActiveFiltersPresetNameLocal(preset.preset_name);
         }
         // Clear flag after preset name is set
         isLoadingPresetRef.current = false;
@@ -1563,9 +1825,21 @@ export function MyTable<T extends Record<string, any>>({
       isLoadingPresetRef.current = false;
       TI.toastMessages.presetLoadFailed(err.response?.data?.error);
     }
-  }, [api, snapshot]);
+  }, [cfg.useMyState, myState, api, snapshot]);
   
-  const handleDeletePreset = TI.useCallback(async (presetId: number) => {
+  const handleDeletePreset = TI.useCallback(async (presetId: string | number) => {
+    // If useMyState is enabled, use myState.deletePreset
+    if (cfg.useMyState && myState) {
+      try {
+        await myState.deletePreset(String(presetId));
+        // Refresh is handled by deletePreset
+      } catch (err: any) {
+        // Error toast is handled by deletePreset
+      }
+      return;
+    }
+    
+    // Legacy: use old table-state-presets API
     try {
       await api.delete(`/api/table-state-presets/${presetId}/`);
       TI.toastMessages.presetDeleted();
@@ -1573,7 +1847,7 @@ export function MyTable<T extends Record<string, any>>({
     } catch (err: any) {
       TI.toastMessages.presetDeleteFailed();
     }
-  }, [api, loadSavedPresets]);
+  }, [cfg.useMyState, myState, api, loadSavedPresets]);
 
   // ============================================
   // PAGINATION
@@ -1830,7 +2104,7 @@ export function MyTable<T extends Record<string, any>>({
   // ============================================
   if (fetchError) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="bg-background flex items-center justify-center py-10 px-4">
         <div className="text-center space-y-4">
           <h2 className="text-xl font-semibold text-destructive">Error Loading Data</h2>
           <p className="text-muted-foreground">{fetchError}</p>
@@ -1841,19 +2115,13 @@ export function MyTable<T extends Record<string, any>>({
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="max-w-[1400px] mx-auto px-4 py-6 space-y-4">
       {/* PAGE HEADER */}
-      {cfg.pageHeader.visible && (
-        <PageHeader
-          title={cfg.pageHeader.title || cfg.tableName}
-          subtitle={cfg.pageHeader.subtitle}
-          buildNumber={cfg.pageHeader.buildNumber}
-        />
-      )}
+      {cfg.pageHeader.visible && <PageHeader />}
 
       {/* MAIN CONTAINER */}
-      <div className="max-w-[1400px] mx-auto p-4 space-y-4">
-        <TI.TableCard>
+      <div className="max-w-full">
+      <TI.TableCard className="w-full">
           {/* TABLE HEADER */}
           <TI.TableHeader
             title={cfg.tableName}
@@ -1873,17 +2141,30 @@ export function MyTable<T extends Record<string, any>>({
             <div className="flex items-center justify-between gap-3 flex-wrap w-full">
               {/* Search field - left side */}
               {cfg.headerVisibility.search && cfg.globalSearch.enabled && (
-                <div className="flex-shrink-0">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <TI.TableSearch
                     value={globalFilterInput}
                     onChange={setGlobalFilterInput}
-                    placeholder={
-                      cfg.globalSearch.placeholder || 
-                      (cfg.globalSearch.advancedSearch 
-                        ? 'Search… (Try: "exact phrase" AND (term1 OR term2))'
-                        : 'Search...')
-                    }
+                    placeholder={searchPlaceholder}
                   />
+                  {cfg.globalSearch.allowModeToggle !== false && (
+                    <TI.Button
+                      size="sm"
+                      variant={isAdvancedSearch ? 'default' : 'ghost'}
+                      onClick={() => setSearchMode(isAdvancedSearch ? 'simple' : 'advanced')}
+                    >
+                      {isAdvancedSearch ? 'Pokročilé' : 'Jednoduché'}
+                    </TI.Button>
+                  )}
+                  {cfg.globalSearch.allowApprox !== false && (
+                    <TI.Button
+                      size="sm"
+                      variant={approximateSearch ? 'default' : 'ghost'}
+                      onClick={() => setApproximateSearch(!approximateSearch)}
+                    >
+                      {approximateSearch ? 'Fuzzy ON' : 'Fuzzy OFF'}
+                    </TI.Button>
+                  )}
                 </div>
               )}
 
@@ -1901,7 +2182,7 @@ export function MyTable<T extends Record<string, any>>({
                   onExportCSV={cfg.toolbarVisibility.csv && cfg.export.csv && allowExport && user?.can_export ? handleExportCSV : undefined}
                   onExportXLSX={cfg.toolbarVisibility.xlsx && cfg.export.xlsx && allowExport && user?.can_export ? handleExportXLSX : undefined}
                   onReset={cfg.toolbarVisibility.reset ? handleReset : undefined}
-                  onSave={cfg.toolbarVisibility.save && cfg.callbacks?.onSave ? cfg.callbacks.onSave : undefined}
+                  onSave={cfg.toolbarVisibility.save && cfg.callbacks?.onSave ? () => cfg.callbacks?.onSave?.(data) : undefined}
                   onShare={
                     cfg.toolbarVisibility.share && selectedCount > 0 && (user?.is_admin || user?.is_superuser_role)
                       ? () => {
@@ -1940,18 +2221,39 @@ export function MyTable<T extends Record<string, any>>({
             <TI.FilterPanel
               title="Filters"
               activePresetName={activeFiltersPresetName}
+              isModified={cfg.useMyState ? isFiltersModified : false}
+              onRevertToPreset={cfg.useMyState ? handleRevertFilters : undefined}
+              onSaveModification={cfg.useMyState ? handleSaveFilterModification : undefined}
+              isSaving={filtersMyState?.isSavingPreset}
               onClose={() => setShowFilters(false)}
               onSet={() => {
-                setStatePresetComponent('filters');
-                setShowSaveStateModal(true);
+                if (cfg.useMyState && filtersMyState) {
+                  // Use independent filters scope modal
+                  setShowFiltersSaveModal(true);
+                } else {
+                  // Legacy mode
+                  setStatePresetComponent('filters');
+                  setShowSaveStateModal(true);
+                }
               }}
               onReset={() => {
                 setColumnFilters([]);
                 setGlobalFilterInput('');
+                if (cfg.useMyState && filtersMyState) {
+                  filtersMyState.setActivePresetName(null);
+                } else {
+                  setActiveFiltersPresetNameLocal(null);
+                }
               }}
               onRecall={() => {
-                setStatePresetComponent('filters');
-                setShowLoadStateModal(true);
+                if (cfg.useMyState && filtersMyState) {
+                  // Use independent filters scope modal
+                  setShowFiltersLoadModal(true);
+                } else {
+                  // Legacy mode
+                  setStatePresetComponent('filters');
+                  setShowLoadStateModal(true);
+                }
               }}
             >
               {renderFiltersFromMatrix()}
@@ -1969,20 +2271,41 @@ export function MyTable<T extends Record<string, any>>({
                 return isInList; // Only show if isInList === true
               })}
               activePresetName={activeColumnsPresetName}
+              isModified={cfg.useMyState ? isColumnsModified : false}
+              onRevertToPreset={cfg.useMyState ? handleRevertColumns : undefined}
+              onSaveModification={cfg.useMyState ? handleSaveColumnModification : undefined}
+              isSaving={columnsMyState?.isSavingPreset}
               onReorder={(columnIds) => columnState.setColumnOrder(columnIds)}
               onClose={() => setShowColumns(false)}
               onSet={() => {
-                setStatePresetComponent('columns');
-                setShowSaveStateModal(true);
+                if (cfg.useMyState && columnsMyState) {
+                  // Use independent columns scope modal
+                  setShowColumnsSaveModal(true);
+                } else {
+                  // Legacy mode
+                  setStatePresetComponent('columns');
+                  setShowSaveStateModal(true);
+                }
               }}
               onReset={() => {
                 columnState.resetColumnVisibility();
                 columnState.resetColumnOrder();
                 columnState.resetColumnSizing();
+                if (cfg.useMyState && columnsMyState) {
+                  columnsMyState.setActivePresetName(null);
+                } else {
+                  setActiveColumnsPresetNameLocal(null);
+                }
               }}
               onRecall={() => {
-                setStatePresetComponent('columns');
-                setShowLoadStateModal(true);
+                if (cfg.useMyState && columnsMyState) {
+                  // Use independent columns scope modal
+                  setShowColumnsLoadModal(true);
+                } else {
+                  // Legacy mode
+                  setStatePresetComponent('columns');
+                  setShowLoadStateModal(true);
+                }
               }}
               onToggleDebug={user?.is_superuser_role ? () => setShowDebugInfo(prev => !prev) : undefined}
               showDebug={showDebugInfo}
@@ -2138,11 +2461,11 @@ export function MyTable<T extends Record<string, any>>({
       {showAddModal && cfg.toolbarVisibility.add && allowAdd && (
         <AddRecordModal
           open={showAddModal}
-          fieldsMatrix={cfg.fieldsMatrix}
+          fieldsMatrix={fieldConfigMap}
           apiEndpoint={cfg.apiEndpoint}
           singularName={getSingularNameFromEndpoint(cfg.apiEndpoint, cfg.tableName)}
           onClose={() => setShowAddModal(false)}
-          onSuccess={async (newRecord) => {
+          onSuccess={async (_newRecord) => {
             setShowAddModal(false);
             await refetch();
             TI.toastMessages.recordCreated();
@@ -2156,11 +2479,11 @@ export function MyTable<T extends Record<string, any>>({
         <EditRecordModal
           open={!!editingRecord}
           record={editingRecord}
-          fieldsMatrix={cfg.fieldsMatrix}
+          fieldsMatrix={fieldConfigMap}
           apiEndpoint={cfg.apiEndpoint}
           singularName={getSingularNameFromEndpoint(cfg.apiEndpoint, cfg.tableName)}
           onClose={() => setEditingRecord(null)}
-          onSuccess={async (updatedRecord) => {
+          onSuccess={async (_updatedRecord) => {
             setEditingRecord(null);
             await refetch();
             TI.toastMessages.changesSaved();
@@ -2174,23 +2497,169 @@ export function MyTable<T extends Record<string, any>>({
         open={showSaveStateModal}
         onClose={() => setShowSaveStateModal(false)}
         onSave={handleSaveState}
-        defaultName={`${statePresetComponent}-${new Date().toISOString().slice(0, 10)}`}
-        title={`Save ${statePresetComponent.charAt(0).toUpperCase() + statePresetComponent.slice(1)} Preset`}
+        defaultName={cfg.useMyState ? `${cfg.storageKey}-${new Date().toISOString().slice(0, 10)}` : `${statePresetComponent}-${new Date().toISOString().slice(0, 10)}`}
+        title={cfg.useMyState ? 'Save Table State' : `Save ${statePresetComponent.charAt(0).toUpperCase() + statePresetComponent.slice(1)} Preset`}
         nameLabel="Preset Name"
         showDescription={true}
+        presetNameExists={cfg.useMyState && myState ? myState.presetNameExists : undefined}
       />
 
       {/* LOAD STATE PRESET MODAL */}
       <LoadStateModal
         open={showLoadStateModal}
         onClose={() => setShowLoadStateModal(false)}
-        presets={savedPresets}
+        presets={presetsForModal}
         onLoad={handleLoadState}
         onDelete={handleDeletePreset}
-        title={`Load ${statePresetComponent.charAt(0).toUpperCase() + statePresetComponent.slice(1)} Preset`}
-        isLoading={isLoadingPresets}
+        title={cfg.useMyState ? 'Load Saved Preset' : `Load ${statePresetComponent.charAt(0).toUpperCase() + statePresetComponent.slice(1)} Preset`}
       />
 
+      {/* COLUMNS SAVE MODAL (myState mode - independent scope) */}
+      {cfg.useMyState && columnsMyState && (
+        <SaveStateModal
+          open={showColumnsSaveModal}
+          onClose={() => setShowColumnsSaveModal(false)}
+          onSave={async (name, description) => {
+            // Get current columns state
+            const columnsState = {
+              columnVisibility: columnState.columnVisibility,
+              columnOrder: columnState.columnOrder,
+              columnSizing: columnState.columnSizing,
+            };
+            console.log('[MyTable] Saving columns preset with state:', columnsState);
+            // Update columnsMyState with current state before saving
+            columnsMyState.updateState(columnsState);
+            // Save preset - pass state directly to avoid closure issues
+            await columnsMyState.savePreset(name, description, undefined, columnsState);
+          }}
+          defaultName={`columns-${new Date().toISOString().slice(0, 10)}`}
+          title="Save Columns Preset"
+          nameLabel="Preset Name"
+          showDescription={true}
+          presetNameExists={columnsMyState.presetNameExists}
+        />
+      )}
+
+      {/* COLUMNS LOAD MODAL (myState mode - independent scope) */}
+      {cfg.useMyState && columnsMyState && (
+        <LoadStateModal
+          open={showColumnsLoadModal}
+          onClose={() => setShowColumnsLoadModal(false)}
+          presets={(
+            Array.isArray(columnsMyState.savedStates) ? columnsMyState.savedStates : []
+          ).map(preset => ({
+            id: preset.id,
+            preset_name: preset.preset_name,
+            description: preset.description || '',
+            component: 'columns',
+            created: preset.created,
+            updated: preset.updated,
+            is_default: preset.is_default,
+            _isMyState: true,
+          })) as any
+          }
+          onLoad={async (preset: any) => {
+            try {
+              console.log('[MyTable] Loading columns preset:', preset.preset_name);
+              const loadedState = await columnsMyState.loadPreset(preset);
+              console.log('[MyTable] Loaded columns state:', loadedState);
+              setShowColumnsLoadModal(false);
+              // Apply loaded state to local column state
+              if (loadedState.columnVisibility) {
+                console.log('[MyTable] Applying columnVisibility:', loadedState.columnVisibility);
+                columnState.setColumnVisibility(loadedState.columnVisibility);
+              }
+              if (loadedState.columnOrder) {
+                console.log('[MyTable] Applying columnOrder:', loadedState.columnOrder);
+                columnState.setColumnOrder(loadedState.columnOrder);
+              }
+              if (loadedState.columnSizing) {
+                console.log('[MyTable] Applying columnSizing:', loadedState.columnSizing);
+                columnState.setColumnSizing(loadedState.columnSizing);
+              }
+            } catch (error) {
+              console.error('[MyTable] Error loading columns preset:', error);
+            }
+          }}
+          onDelete={async (presetId) => {
+            await columnsMyState.deletePreset(String(presetId));
+          }}
+          title="Load Columns Preset"
+        />
+      )}
+      {/* FILTERS SAVE MODAL (myState mode - independent scope) */}
+      {cfg.useMyState && filtersMyState && (
+        <SaveStateModal
+          open={showFiltersSaveModal}
+          onClose={() => setShowFiltersSaveModal(false)}
+          onSave={async (name, description) => {
+            // Get current filters state
+            const filtersState = {
+              columnFilters,
+              globalFilter: globalFilterInput,
+            };
+            console.log('[MyTable] Saving filters preset with state:', filtersState);
+            // Update filtersMyState with current state before saving
+            filtersMyState.updateState(filtersState);
+            // Save preset - pass state directly to avoid closure issues
+            await filtersMyState.savePreset(name, description, undefined, filtersState);
+          }}
+          defaultName={`filters-${new Date().toISOString().slice(0, 10)}`}
+          title="Save Filters Preset"
+          nameLabel="Preset Name"
+          showDescription={true}
+          presetNameExists={filtersMyState.presetNameExists}
+        />
+      )}
+
+      {/* FILTERS LOAD MODAL (myState mode - independent scope) */}
+      {cfg.useMyState && filtersMyState && (
+        <LoadStateModal
+          open={showFiltersLoadModal}
+          onClose={() => setShowFiltersLoadModal(false)}
+          presets={(() => {
+            const states = Array.isArray(filtersMyState.savedStates) ? filtersMyState.savedStates : [];
+            console.log('[MyTable] Raw savedStates for filters:', states.map(s => ({ id: s.id, name: s.preset_name })));
+            return states.map(preset => {
+              const transformed = {
+                id: preset.id,
+                preset_name: preset.preset_name,
+                description: preset.description || '',
+                component: 'filters',
+                created: preset.created,
+                updated: preset.updated,
+                is_default: preset.is_default,
+                _isMyState: true,
+              };
+              return transformed;
+            });
+          })() as any
+          }
+          onLoad={async (preset: any) => {
+            try {
+              console.log('[MyTable] Loading filters preset - ID:', preset.id, 'Name:', preset.preset_name);
+              const loadedState = await filtersMyState.loadPreset(preset);
+              console.log('[MyTable] Loaded filters state for', preset.preset_name, ':', loadedState);
+              setShowFiltersLoadModal(false);
+              // Apply loaded state to local filter state
+              if (loadedState.columnFilters) {
+                console.log('[MyTable] Applying columnFilters:', JSON.stringify(loadedState.columnFilters, null, 2));
+                setColumnFilters(loadedState.columnFilters);
+              }
+              if (loadedState.globalFilter !== undefined) {
+                console.log('[MyTable] Applying globalFilter:', loadedState.globalFilter);
+                setGlobalFilterInput(loadedState.globalFilter);
+              }
+            } catch (error) {
+              console.error('[MyTable] Error loading filters preset:', error);
+            }
+          }}
+          onDelete={async (presetId) => {
+            await filtersMyState.deletePreset(String(presetId));
+          }}
+          title="Load Filters Preset"
+        />
+      )}
       {/* DEBUG */}
       {cfg.debug && (
         <div className="fixed bottom-4 right-4 bg-background border border-border rounded p-4 shadow-lg max-w-md text-xs">
@@ -2201,4 +2670,3 @@ export function MyTable<T extends Record<string, any>>({
     </div>
   );
 }
-

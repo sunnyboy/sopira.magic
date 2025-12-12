@@ -5,6 +5,7 @@
 
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { API_BASE } from '@/config/api';
+import { getMutatingHeaders } from '@/security/csrf';
 
 type Theme = 'light' | 'dark' | 'auto';
 type ThemeColor = 'blue' | 'green' | 'orange';
@@ -217,7 +218,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
         if (prefRes.ok) {
           const prefData = await prefRes.json();
           const existingSettings = prefData?.general_settings || {};
-          
+
           // Only save if theme actually changed in backend
           if (existingSettings.theme !== newTheme) {
             // Update theme in general_settings
@@ -227,24 +228,11 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
               theme_color: themeColor, // Include current theme color
             };
 
-            // Get CSRF token from cookie if available
-            function getCookie(name: string): string | null {
-              const value = `; ${document.cookie}`;
-              const parts = value.split(`; ${name}=`);
-              if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
-              return null;
-            }
-
-            const csrfToken = getCookie('csrftoken');
-
             // Save updated preferences
             await fetch(prefsUrl, {
               method: 'PUT',
               credentials: 'include',
-              headers: {
-                'Content-Type': 'application/json',
-                ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
-              },
+              headers: getMutatingHeaders(),
               body: JSON.stringify({
                 selected_factories: prefData?.selected_factories || [],
                 general_settings: updatedSettings,
@@ -293,23 +281,10 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
               theme_color: newColor,
             };
 
-            // Get CSRF token from cookie if available
-            function getCookie(name: string): string | null {
-              const value = `; ${document.cookie}`;
-              const parts = value.split(`; ${name}=`);
-              if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
-              return null;
-            }
-
-            const csrfToken = getCookie('csrftoken');
-
             await fetch(prefsUrl, {
               method: 'PUT',
               credentials: 'include',
-              headers: {
-                'Content-Type': 'application/json',
-                ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
-              },
+              headers: getMutatingHeaders(),
               body: JSON.stringify({
                 selected_factories: prefData?.selected_factories || [],
                 general_settings: updatedSettings,

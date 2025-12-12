@@ -5,6 +5,7 @@
 
 import { useAuth } from '../contexts/AuthContext';
 import { useCallback, useMemo } from 'react';
+import { getMutatingHeaders } from '@/security/csrf';
 
 export const useApi = () => {
   const { csrfToken } = useAuth();
@@ -17,9 +18,7 @@ export const useApi = () => {
 
   // Vytvorí headers s autentifikáciou
   const getAuthHeaders = useCallback((additionalHeaders: Record<string, string> = {}) => ({
-    'Content-Type': 'application/json',
-    'X-CSRFToken': csrfToken,
-    ...additionalHeaders,
+    ...getMutatingHeaders(additionalHeaders),
   }), [csrfToken]);
 
   const createHttpError = useCallback((status: number, message?: string) => {

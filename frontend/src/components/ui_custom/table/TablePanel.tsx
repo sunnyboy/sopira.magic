@@ -17,6 +17,10 @@ interface TablePanelProps {
   icon?: ReactNode;
   children: ReactNode;
   activePresetName?: string | null;
+  isModified?: boolean;
+  onRevertToPreset?: () => void;
+  onSaveModification?: () => void;
+  isSaving?: boolean;
   onSet?: () => void;
   onReset?: () => void;
   onRecall?: () => void;
@@ -27,7 +31,25 @@ interface TablePanelProps {
   onDeselectAll?: () => void;
 }
 
-export function TablePanel({ open, title, icon, children, activePresetName, onSet, onReset, onRecall, onClose, onToggleDebug, showDebug, onSelectAll, onDeselectAll }: TablePanelProps) {
+export function TablePanel({ 
+  open, 
+  title, 
+  icon, 
+  children, 
+  activePresetName, 
+  isModified,
+  onRevertToPreset,
+  onSaveModification,
+  isSaving,
+  onSet, 
+  onReset, 
+  onRecall, 
+  onClose, 
+  onToggleDebug, 
+  showDebug, 
+  onSelectAll, 
+  onDeselectAll 
+}: TablePanelProps) {
   return (
     <AnimatePresence>
       {open && (
@@ -42,6 +64,10 @@ export function TablePanel({ open, title, icon, children, activePresetName, onSe
             title={title}
             icon={icon}
             activePresetName={activePresetName}
+            isModified={isModified}
+            onRevertToPreset={onRevertToPreset}
+            onSaveModification={onSaveModification}
+            isSaving={isSaving}
             onSet={onSet}
             onReset={onReset}
             onRecall={onRecall}

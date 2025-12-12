@@ -80,12 +80,6 @@ class Camera(FactoryScopedModel):
             models.Index(fields=["factory", "location"]),
             models.Index(fields=["ip"]),
         ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["factory", "code"],
-                name="uq_camera_factory_code",
-            ),
-        ]
 
 
 class ServiceCredential(TimeStampedModel):

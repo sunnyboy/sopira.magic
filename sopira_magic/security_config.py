@@ -193,6 +193,48 @@ def detect_environment():
         return ("production", use_https_flag, False)
 
 
+def _env_int(name: str, default: int) -> int:
+    """Parse integer env var with fallback."""
+    try:
+        return int(os.getenv(name, "").strip())
+    except Exception:
+        return default
+
+
+# -----------------------------------------------------------------------------
+# Elasticsearch config (environment-aware)
+# -----------------------------------------------------------------------------
+ELASTICSEARCH_URL_ENV_MAP = {
+    "local": "ELASTICSEARCH_URL_LOCAL",
+    "dev": "ELASTICSEARCH_URL_DEV",
+    "production": "ELASTICSEARCH_URL_PROD",
+    "render": "ELASTICSEARCH_URL_RENDER",
+}
+
+
+def get_elasticsearch_config():
+    """
+    Return ES konfiguráciu podľa prostredia (fallback na ELASTICSEARCH_URL).
+    
+    - URL: preferuje environment-specific env (ELASTICSEARCH_URL_LOCAL/DEV/PROD/RENDER),
+      inak ELASTICSEARCH_URL.
+    - Enabled: SEARCH_ELASTIC_ENABLED (default True if URL je non-empty).
+    """
+    env_type, _, _ = detect_environment()
+    env_var = ELASTICSEARCH_URL_ENV_MAP.get(env_type, "ELASTICSEARCH_URL")
+    url = os.getenv(env_var) or os.getenv("ELASTICSEARCH_URL", "")
+    enabled = _env_flag("SEARCH_ELASTIC_ENABLED", bool(url))
+    return {
+        "url": url,
+        "enabled": enabled,
+        "default_mode": os.getenv("SEARCH_DEFAULT_MODE", "simple"),
+        "allow_approx": _env_flag("SEARCH_ALLOW_APPROX", True),
+        "index_prefix": os.getenv("SEARCH_INDEX_PREFIX", "idx"),
+        "request_timeout": _env_int("SEARCH_REQUEST_TIMEOUT", 5),
+        "max_page_size": _env_int("SEARCH_MAX_PAGE_SIZE", 200),
+    }
+
+
 def get_cors_origins() -> List[str]:
     """Get allowed CORS origins based on detected environment."""
     env_type, is_https, is_localhost = detect_environment()

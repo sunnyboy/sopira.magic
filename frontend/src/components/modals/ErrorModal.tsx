@@ -4,7 +4,6 @@
 //*       Extends BaseModal for consistent UX
 //*........................................................
 
-import React from 'react';
 import { BaseModal } from '@/components/modals/BaseModal';
 import { Button } from '@/components/ui_custom/button';
 import { AlertCircle } from 'lucide-react';
@@ -14,6 +13,8 @@ export interface ErrorDetails {
   operation: 'save' | 'delete' | 'create' | 'load' | 'export';
   message: string;
   technicalDetails?: string;
+  title?: string;
+  details?: any;
 }
 
 interface ErrorModalProps {

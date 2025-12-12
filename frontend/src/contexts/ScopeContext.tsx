@@ -6,6 +6,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { API_BASE } from '@/config/api';
+import { getMutatingHeaders } from '@/security/csrf';
 
 export type ScopeContextType = {
   selectedFactories: string[];
@@ -106,10 +107,7 @@ export const ScopeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               await fetch(prefsUrl, {
                 method: 'PUT',
                 credentials: 'include',
-                headers: {
-                  'Content-Type': 'application/json',
-                  ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
-                },
+                headers: getMutatingHeaders(),
                 body: JSON.stringify({ selected_factories: validFactories }),
               });
               console.log('[ScopeContext] Cleaned invalid UUIDs from database');
@@ -151,10 +149,7 @@ export const ScopeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                   await fetch(prefsUrl, {
                     method: 'PUT',
                     credentials: 'include',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
-                    },
+                    headers: getMutatingHeaders(),
                     body: JSON.stringify({ selected_factories: accessibleFactoryIds }),
                   });
                   
@@ -333,10 +328,7 @@ export const ScopeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const res = await fetch(prefsUrl, {
           method: 'PUT',
           credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
-          },
+          headers: getMutatingHeaders(),
           body: JSON.stringify({ selected_factories: validUUIDs }),
         });
         
@@ -380,10 +372,7 @@ export const ScopeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const res = await fetch(url, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
-        },
+        headers: getMutatingHeaders(),
         body: JSON.stringify({}), // Empty body - uses all FK fields by default
       });
       

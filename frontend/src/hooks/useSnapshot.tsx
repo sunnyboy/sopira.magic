@@ -9,6 +9,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { toast } from 'sonner';
 import { useApi } from './useApi';
 
 // ============================================================================
@@ -115,6 +116,9 @@ export function useSnapshot(factory: string | null = null): UseSnapshotReturn {
   useEffect(() => {
     snapshotRef.current = snapshot;
   }, [snapshot]);
+
+  const fallbackRef = useRef(false);
+  const loadToastShownRef = useRef(false);
   
   // Debounce timer for updates
   const updateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -146,7 +150,7 @@ export function useSnapshot(factory: string | null = null): UseSnapshotReturn {
           const dateA = new Date(a.updated).getTime();
           const dateB = new Date(b.updated).getTime();
           if (dateB !== dateA) return dateB - dateA; // Newer first
-          return b.id - a.id; // Higher ID first as tiebreaker
+          return String(b.id).localeCompare(String(a.id)); // Tiebreaker by id
         });
         const snap = sortedResults[0] as Snapshot;
         
@@ -167,16 +171,13 @@ export function useSnapshot(factory: string | null = null): UseSnapshotReturn {
         }
         
         setSnapshot(snap);
-        console.log('✓ Loaded SNAPSHOT', snap);
-        console.log('📊 INITIAL __current__ STATE:', {
-          id: snap.id,
-          preset_name: snap.preset_name,
-          factory: snap.factory,
-          state: JSON.parse(JSON.stringify(snap.state))
-        });
+        fallbackRef.current = false;
+        if (!loadToastShownRef.current) {
+          toast.success('State načítaný');
+          loadToastShownRef.current = true;
+        }
       } else {
         // Create new snapshot via backend
-        console.log('📝 Creating new snapshot for factory:', factory);
         const payload = {
           table_name: null,
           component: 'table',
@@ -197,22 +198,39 @@ export function useSnapshot(factory: string | null = null): UseSnapshotReturn {
             }
           }
         };
-        console.log('📤 POST payload:', payload);
         const newSnap = await api.post('/api/table-state-presets/', payload);
         
         setSnapshot(newSnap as Snapshot);
-        console.log('✓ Created SNAPSHOT', newSnap);
-        console.log('📊 NEW __current__ STATE:', {
-          id: (newSnap as Snapshot).id,
-          preset_name: (newSnap as Snapshot).preset_name,
-          factory: (newSnap as Snapshot).factory,
-          state: JSON.parse(JSON.stringify((newSnap as Snapshot).state))
-        });
+        fallbackRef.current = false;
+        if (!loadToastShownRef.current) {
+          toast.success('State načítaný');
+          loadToastShownRef.current = true;
+        }
       }
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || err.message || 'Failed to load snapshot';
       setError(errorMsg);
-      console.error('❌ Failed to load snapshot:', errorMsg);
+      const fallbackSnap: Snapshot = {
+        id: 'local-fallback',
+        user: '',
+        username: '',
+        factory: factory || null,
+        table_name: null,
+        component: 'table',
+        preset_name: '__current__',
+        description: 'Local fallback snapshot',
+        state: { tables: {}, global: {} },
+        is_active: true,
+        is_default: true,
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+      };
+      setSnapshot(fallbackSnap);
+      fallbackRef.current = true;
+      if (!loadToastShownRef.current) {
+        toast.warning('State snapshot nedostupný, používam lokálny fallback');
+        loadToastShownRef.current = true;
+      }
     } finally {
       setIsLoading(false);
     }
@@ -233,6 +251,12 @@ export function useSnapshot(factory: string | null = null): UseSnapshotReturn {
     if (!currentSnapshot || !pendingUpdateRef.current) return;
     
     try {
+      if (fallbackRef.current || !currentSnapshot.id || currentSnapshot.id === 'local-fallback') {
+        pendingUpdateRef.current = null;
+        toast.success('State uložený (lokálne)');
+        return;
+      }
+
       // Deep merge pending updates into snapshot state
       const updatedState = {
         ...currentSnapshot.state,
@@ -261,15 +285,13 @@ export function useSnapshot(factory: string | null = null): UseSnapshotReturn {
       // Clear pending (important: do this AFTER successful PATCH)
       pendingUpdateRef.current = null;
       
-      console.log('✓ Synced SNAPSHOT to backend');
-      console.log('📊 SYNCED __current__ STATE TO BACKEND:', {
-        id: currentSnapshot.id,
-        preset_name: currentSnapshot.preset_name,
-        state: JSON.parse(JSON.stringify(updatedState))
-      });
+      toast.success('State uložený');
     } catch (err: any) {
-      console.error('❌ Failed to sync snapshot:', err);
       // Keep pending updates in case of error (will retry on next change)
+      if (fallbackRef.current) {
+        pendingUpdateRef.current = null;
+        toast.warning('State uložený len lokálne (fallback)');
+      }
     }
   }, [api]);
   
@@ -286,26 +308,32 @@ export function useSnapshot(factory: string | null = null): UseSnapshotReturn {
   }, [flushUpdate]);
   
   const updateTable = useCallback((tableName: string, partialState: Partial<TableState>) => {
-    // Update local state immediately (optimistic update)
     setSnapshot(prev => {
       if (!prev) return null;
-      
-      // Merge into pending updates
+
+      const currentTableState = prev.state.tables[tableName] || {};
+      const hasDiff = Object.entries(partialState).some(([key, value]) => {
+        const currentValue = (currentTableState as any)[key];
+        return JSON.stringify(currentValue) !== JSON.stringify(value);
+      });
+
+      if (!hasDiff) {
+        return prev;
+      }
+
       if (!pendingUpdateRef.current) {
         pendingUpdateRef.current = { tables: {}, global: {} };
       }
       if (!pendingUpdateRef.current.tables) {
         pendingUpdateRef.current.tables = {};
       }
-      
-      // Deep merge table state
-      const currentTableState = prev.state.tables[tableName] || {};
+
       pendingUpdateRef.current.tables[tableName] = {
         ...currentTableState,
         ...partialState
       };
-      
-      const newSnapshot = {
+
+      return {
         ...prev,
         state: {
           ...prev.state,
@@ -318,39 +346,46 @@ export function useSnapshot(factory: string | null = null): UseSnapshotReturn {
           }
         }
       };
-      
-      // 📊 Console log kompletného stavu po zmene
-      console.log('🔄 SNAPSHOT UPDATED [table: ' + tableName + ']:', {
-        id: newSnapshot.id,
-        preset_name: newSnapshot.preset_name,
-        state: JSON.parse(JSON.stringify(newSnapshot.state)), // Deep clone pre lepší display
-        updated_table: tableName,
-        updated_fields: Object.keys(partialState)
-      });
-      
-      return newSnapshot;
     });
-    
-    // Schedule backend sync
-    scheduleUpdate();
+
+    // Schedule backend sync only if we actually changed something
+    if (Object.keys(partialState).length > 0) {
+      const prev = snapshotRef.current;
+      const currentTableState = prev?.state.tables[tableName] || {};
+      const hasDiff = Object.entries(partialState).some(([key, value]) => {
+        const currentValue = (currentTableState as any)[key];
+        return JSON.stringify(currentValue) !== JSON.stringify(value);
+      });
+      if (hasDiff) {
+        scheduleUpdate();
+      }
+    }
   }, [scheduleUpdate]);
   
   const updateGlobal = useCallback((partialState: Partial<GlobalState>) => {
-    // Update local state immediately (optimistic update)
     setSnapshot(prev => {
       if (!prev) return null;
-      
-      // Merge into pending updates
+
+      const currentGlobal = prev.state.global || {};
+      const hasDiff = Object.entries(partialState).some(([key, value]) => {
+        const currentValue = (currentGlobal as any)[key];
+        return JSON.stringify(currentValue) !== JSON.stringify(value);
+      });
+
+      if (!hasDiff) {
+        return prev;
+      }
+
       if (!pendingUpdateRef.current) {
         pendingUpdateRef.current = { tables: {}, global: {} };
       }
-      
+
       pendingUpdateRef.current.global = {
         ...pendingUpdateRef.current.global,
         ...partialState
       };
-      
-      const newSnapshot = {
+
+      return {
         ...prev,
         state: {
           ...prev.state,
@@ -360,20 +395,17 @@ export function useSnapshot(factory: string | null = null): UseSnapshotReturn {
           }
         }
       };
-      
-      // 📊 Console log kompletného stavu po zmene
-      console.log('🔄 SNAPSHOT UPDATED [global]:', {
-        id: newSnapshot.id,
-        preset_name: newSnapshot.preset_name,
-        state: JSON.parse(JSON.stringify(newSnapshot.state)), // Deep clone pre lepší display
-        updated_global_fields: Object.keys(partialState)
-      });
-      
-      return newSnapshot;
     });
-    
-    // Schedule backend sync
-    scheduleUpdate();
+
+    const prev = snapshotRef.current;
+    const currentGlobal = prev?.state.global || {};
+    const hasDiff = Object.entries(partialState).some(([key, value]) => {
+      const currentValue = (currentGlobal as any)[key];
+      return JSON.stringify(currentValue) !== JSON.stringify(value);
+    });
+    if (hasDiff) {
+      scheduleUpdate();
+    }
   }, [scheduleUpdate]);
   
   // ============================================================================

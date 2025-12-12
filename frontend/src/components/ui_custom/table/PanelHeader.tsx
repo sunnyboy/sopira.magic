@@ -6,11 +6,20 @@
 import React from 'react';
 import { Button } from '@/components/ui_custom/button';
 import { Save, RotateCcw, Clock, X, Bug, CheckSquare, Square } from 'lucide-react';
+import { StateStatusLine } from '@/components/ui_custom/StateStatusLine';
 
 interface PanelHeaderProps {
   title: string;
   icon?: React.ReactNode;
   activePresetName?: string | null;
+  /** Whether the current state has been modified from loaded preset */
+  isModified?: boolean;
+  /** Callback to revert to loaded preset state */
+  onRevertToPreset?: () => void;
+  /** Callback to save modifications to existing preset */
+  onSaveModification?: () => void;
+  /** Whether save operation is in progress */
+  isSaving?: boolean;
   onSet?: () => void;
   onReset?: () => void;
   onRecall?: () => void;
@@ -25,6 +34,10 @@ export function PanelHeader({
   title,
   icon,
   activePresetName,
+  isModified = false,
+  onRevertToPreset,
+  onSaveModification,
+  isSaving = false,
   onSet,
   onReset,
   onRecall,
@@ -133,12 +146,22 @@ export function PanelHeader({
         </div>
       </div>
       
-      {/* Second row: Currently loaded setting (right-aligned) */}
+      {/* Second row: Currently loaded setting with modification actions */}
       {activePresetName && (
         <div className="flex justify-end mt-2">
           <span className="text-xs text-muted-foreground">
-            Currently loaded setting: <span className="text-primary font-medium">"{activePresetName}"</span>
+            Currently loaded setting:{' '}
           </span>
+          <StateStatusLine
+            activePresetName={activePresetName}
+            isModified={isModified}
+            onRevert={onRevertToPreset}
+            onSaveModification={onSaveModification}
+            isSaving={isSaving}
+            compact
+            showIcon={false}
+            className="ml-1"
+          />
         </div>
       )}
     </div>

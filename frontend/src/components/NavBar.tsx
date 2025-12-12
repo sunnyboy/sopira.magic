@@ -95,6 +95,7 @@ export default function NavBar() {
                 {canSeeMenu("machines") && <Item to="/machines">Machines</Item>}
                 {canSeeMenu("cameras") && <Item to="/cameras">Cameras</Item>}
                 {canSeeMenu("users") && <Item to="/users">Users</Item>}
+                {(canSeeMenu("generator", isSuperUser) || isSuperUser) && <Item to="/generator">Generator</Item>}
               </div>
               <div className="flex items-center gap-2">
                 {/* Logout button */}

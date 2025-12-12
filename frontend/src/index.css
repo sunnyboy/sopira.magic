@@ -21,6 +21,8 @@
     --accent-foreground: 218 43% 9%;
     --destructive: 0 84.2% 60.2%; /* #ef4444 */
     --destructive-foreground: 0 0% 100%;
+    --warning: 38 92% 50%; /* #f59e0b - amber-500 */
+    --warning-foreground: 0 0% 100%;
     --border: 220 13% 91%; /* #e5e7eb */
     --input: 220 13% 91%;
     --ring: 217 91% 60%;
@@ -60,6 +62,8 @@
     --accent-foreground: 220 13% 91%;
     --destructive: 0 63% 31%;
     --destructive-foreground: 220 13% 91%;
+    --warning: 38 92% 50%; /* #f59e0b - amber-500 */
+    --warning-foreground: 0 0% 100%;
     --border: 215 14% 16%;
     --input: 215 14% 16%;
     --ring: 217 91% 60%;
@@ -186,5 +190,35 @@
   input.measurements-generator-input[type="number"]::-webkit-inner-spin-button,
   input.measurements-generator-input[type="number"]::-webkit-outer-spin-button {
     margin-left: 8px;
+  }
+}
+
+/* StateStatusLine component styles */
+@layer components {
+  /* Preset name link - for reverting to saved state */
+  .state-status-preset-link {
+    @apply text-warning underline underline-offset-2 decoration-dotted;
+    @apply hover:text-warning/80 hover:decoration-solid;
+    @apply focus:outline-none focus:ring-1 focus:ring-warning/50 focus:ring-offset-1;
+    @apply transition-colors cursor-pointer;
+  }
+  
+  /* Preset name link styled as badge */
+  .state-status-preset-link-badge {
+    @apply px-2.5 py-0.5 rounded-full text-sm font-medium;
+    @apply bg-warning/10 text-warning border border-warning/30;
+    @apply underline underline-offset-2 decoration-dotted;
+    @apply hover:bg-warning/20 hover:decoration-solid;
+    @apply focus:outline-none focus:ring-2 focus:ring-warning/50;
+    @apply transition-colors cursor-pointer;
+  }
+  
+  /* Save modification link */
+  .state-status-save-link {
+    @apply text-xs text-primary underline underline-offset-2;
+    @apply hover:text-primary/80 hover:no-underline;
+    @apply focus:outline-none focus:ring-1 focus:ring-primary/50 focus:ring-offset-1;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline;
+    @apply transition-colors cursor-pointer;
   }
 }

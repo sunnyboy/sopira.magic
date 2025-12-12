@@ -557,6 +557,12 @@ export interface MyTableConfig<T extends Record<string, any> = any> {
     enabled?: boolean;
     /** Enable advanced search syntax with AND, OR, NOT, parentheses (default: false) */
     advancedSearch?: boolean;
+    /** Použiť search microservice (ES) pre global search (default: true) */
+    useSearchService?: boolean;
+    /** Povoliť prepínanie simple/advanced v UI (default: true) */
+    allowModeToggle?: boolean;
+    /** Povoliť fuzzy/approximate toggle (default: true) */
+    allowApprox?: boolean;
     /** Custom placeholder text (overrides default) */
     placeholder?: string;
     /** Debounce delay in ms (default: 300) */
@@ -594,6 +600,23 @@ export interface MyTableConfig<T extends Record<string, any> = any> {
   customToolbarButtons?: ReactNode;
   /** Enable debug mode (logs state) */
   debug?: boolean;
+  /** Disable backend snapshot/table-state persistence */
+  disableSnapshot?: boolean;
+  /** Disable backend filter preset persistence */
+  disableFilterState?: boolean;
+  /**
+   * Use new MyState system for state persistence (mystate module)
+   * 
+   * When enabled:
+   * - Current state (sorting, filters, pagination, columns) stored in LocalStorage
+   * - Saved presets stored in STATE database (shareable)
+   * 
+   * When disabled (default):
+   * - Uses legacy state module
+   * 
+   * @default false
+   */
+  useMyState?: boolean;
 }
 
 /**
@@ -655,6 +678,9 @@ export const DEFAULT_MY_TABLE_CONFIG: Partial<MyTableConfig> = {
   globalSearch: {
     enabled: true,
     advancedSearch: false, // Default: simple search
+    useSearchService: true,
+    allowModeToggle: true,
+    allowApprox: true,
     debounceMs: 300,
   },
   rowSelection: {
@@ -678,5 +704,6 @@ export const DEFAULT_MY_TABLE_CONFIG: Partial<MyTableConfig> = {
     text: 'No records match your criteria.',
   },
   debug: false,
+  useMyState: false, // Default: legacy state module
 };
 

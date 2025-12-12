@@ -8,6 +8,7 @@ import type { SavedFilter } from './RecallFilterModal';
 import { API_BASE } from '@/config/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { getMutatingHeaders } from '@/security/csrf';
 
 export function useFilterState(storageKey: string) {
   const { csrfToken } = useAuth();
@@ -47,9 +48,13 @@ export function useFilterState(storageKey: string) {
       } else {
         const errorText = await res.text();
         console.error(`Failed to load saved filters: ${res.status} ${res.statusText}`, errorText);
+        toast.warning('Filter state fallback (backend chybný)');
+        setSavedFilters([]);
       }
     } catch (err) {
       console.error('Failed to load saved filters:', err);
+      toast.warning('Filter state fallback (backend nedostupný)');
+      setSavedFilters([]);
     } finally {
       setLoading(false);
     }
@@ -79,10 +84,7 @@ export function useFilterState(storageKey: string) {
       const res = await fetch(url, {
         method: 'POST',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
-        },
+        headers: getMutatingHeaders(),
         body: JSON.stringify(payload),
       });
       console.log('🔵 [saveFilter] Response status:', res.status);
@@ -114,10 +116,7 @@ export function useFilterState(storageKey: string) {
       const res = await fetch(`${base}/api/user/filters/`, {
         method: 'DELETE',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
-        },
+        headers: getMutatingHeaders(),
         body: JSON.stringify({ name, storageKey }),
       });
 

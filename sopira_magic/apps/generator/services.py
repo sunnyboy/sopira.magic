@@ -71,11 +71,14 @@ from typing import Dict, Any, List, Optional
 from django.db import transaction
 from django.apps import apps
 from django.db import models
+import time
 
 from .config import get_generator_config, get_all_generator_configs
 from .field_generators import generate_field_value
 from .datasets import generate_tags
 from sopira_magic.apps.relation.services import RelationService
+from .progress import ProgressTracker
+from .progress_state import is_cancel_requested
 
 
 class GeneratorService:
@@ -88,8 +91,7 @@ class GeneratorService:
         return apps.get_model(app_label, model_name)
     
     @staticmethod
-    @transaction.atomic
-    def generate_data(model_key: str, count: Optional[int] = None, user=None) -> List[Any]:
+    def generate_data(model_key: str, count: Optional[int] = None, user=None, progress: ProgressTracker = None, job_id: str = None) -> List[Any]:
         """
         Generate data for a model based on config.
         
@@ -166,7 +168,21 @@ class GeneratorService:
         created_objects = []
         existing_count = model_class.objects.count()
         
+        # Precompute password hash once for user generation to avoid repeated hashing (perf)
+        hashed_user_password = None
+        if model_path == "user.User":
+            from django.contrib.auth.hashers import make_password
+            hashed_user_password = make_password("password123")
+
+        start_time = time.time()
+
+        # Logging cadence: factories sú pomalé, loguj každých 5; inak každých 500
+        log_every = 5 if model_key == "factory" else 500
+
         for i in range(1, target_count + 1):
+            if job_id and is_cancel_requested(job_id):
+                logger.info(f"[GENERATOR] Cancel requested, stopping model {model_key}")
+                break
             index = existing_count + i
             context = {}
             
@@ -185,23 +201,21 @@ class GeneratorService:
                     logger.debug(f"[GENERATOR] Skipping field {field_name}: {str(e)}")
                     continue
             
-            # Create object
+            # Create object (per-object transaction to allow recovery from errors)
             try:
-                # Special handling for User model (password required)
-                if model_path == 'user.User':
-                    # Generate password if not provided
-                    if 'password' not in field_values:
-                        field_values['password'] = 'pbkdf2_sha256$600000$dummy$dummy='  # Dummy hash, will be set properly
-                    
-                    # Create user with set_password
-                    obj = model_class(**field_values)
-                    # Set a default password for generated users
-                    obj.set_password('password123')  # Default password for generated users
-                    obj.save()
-                else:
-                    obj = model_class.objects.create(**field_values)
+                with transaction.atomic():
+                    # Special handling for User model (password required)
+                    if model_path == 'user.User':
+                        # Use precomputed hash to speed up bulk user generation
+                        if 'password' not in field_values:
+                            field_values['password'] = hashed_user_password
+                        obj = model_class.objects.create(**field_values)
+                    else:
+                        obj = model_class.objects.create(**field_values)
                 
                 created_objects.append(obj)
+                if progress:
+                    progress.step(1, note=model_key)
                 
                 # Handle tags if tag app is available
                 if 'tags' in config.get('fields', {}):
@@ -234,8 +248,8 @@ class GeneratorService:
                 continue
         
         existing_count_after = model_class.objects.count()
-        logger.info(f"[GENERATOR] generate_data COMPLETE: model_key={model_key}, created={len(created_objects)}, expected={target_count}, total_in_db={existing_count_after}")
-        
+        elapsed = time.time() - start_time
+        logger.info(f"[GENERATOR] generate_data COMPLETE: model_key={model_key}, created={len(created_objects)}, expected={target_count}, total_in_db={existing_count_after}, elapsed={elapsed:.2f}s")
         return created_objects
     
     @staticmethod
@@ -656,8 +670,7 @@ class GeneratorService:
         return None
     
     @staticmethod
-    @transaction.atomic
-    def generate_seed_data(user=None) -> Dict[str, int]:
+    def generate_seed_data(user=None, job_id: str = None, status_fn=None) -> Dict[str, int]:
         """
         Generate seed data for all configured models.
         Respects dependencies via 'depends_on' config - generates in correct order.
@@ -669,15 +682,26 @@ class GeneratorService:
         logger = logging.getLogger(__name__)
         
         logger.info(f"[GENERATOR] generate_seed_data START")
+        configs = get_all_generator_configs()
         
         # Build dependency graph from 'depends_on' in config
         dependencies = {}
-        for key, config in get_all_generator_configs().items():
-            # Use explicit depends_on if defined, otherwise empty list
+        for key, config in configs.items():
             deps = config.get('depends_on', [])
             dependencies[key] = deps
         
         logger.info(f"[GENERATOR] Dependency graph: {dependencies}")
+
+        # Progress tracker (across all records)
+        total_target = sum(cfg.get('count', 0) for cfg in configs.values())
+        progress = ProgressTracker(
+            name="generate_seed_data",
+            total=total_target,
+            logger=logger,
+            status_fn=status_fn,
+            job_id=job_id,
+        )
+        progress.start()
         
         # Topological sort to generate in correct order
         generated = {}
@@ -694,16 +718,21 @@ class GeneratorService:
             
             # Generate this model
             if key not in generated:
+                if job_id and is_cancel_requested(job_id):
+                    logger.info(f"[GENERATOR] Cancel requested, stopping seed at model {key}")
+                    return generated
                 logger.info(f"[GENERATOR] Generating model: {key}")
-                objects = GeneratorService.generate_data(key, user=user)
+                objects = GeneratorService.generate_data(key, user=user, progress=progress, job_id=job_id)
                 generated[key] = len(objects)
                 logger.info(f"[GENERATOR] Generated {key}: {len(objects)} objects")
+                progress.step(len(objects), note=f"model {key}")
         
         # Generate all models
-        for key in get_all_generator_configs().keys():
+        for key in configs.keys():
             generate_recursive(key)
         
         logger.info(f"[GENERATOR] generate_seed_data COMPLETE: {generated}")
+        progress.finish()
         return generated
     
     @staticmethod
@@ -762,3 +791,173 @@ class GeneratorService:
                     raise
                 logger.error(f"[GENERATOR] Failed to clear {model_key}: {error_msg}")
                 raise
+
+# =============================================================================
+# TAG SERVICES - Advanced tag assignment and removal
+# =============================================================================
+
+    @staticmethod
+    @transaction.atomic
+    def assign_tags_to_objects(user, model_key: str, count_per_object: int, object_ids: list = None) -> dict:
+        """
+        Assign tags to existing objects with optional ID filtering.
+        
+        Args:
+            user: User instance for scope isolation
+            model_key: Generator config key (e.g., 'factory', 'location')
+            count_per_object: Number of tags to assign to each object
+            object_ids: Optional list of specific object IDs to target
+            
+        Returns:
+            Dictionary with assignment summary
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"[TAG GENERATOR] assign_tags_to_objects START: model_key={model_key}, count={count_per_object}, object_ids={object_ids}")
+        
+        # Get generator config
+        config = get_generator_config(model_key)
+        if not config:
+            raise ValueError(f"Generator config '{model_key}' not found")
+        
+        model_path = config['model']
+        model_class = GeneratorService.get_model_class(model_path)
+        
+        # Get objects to tag (all or filtered by IDs)
+        if object_ids:
+            objects = model_class.objects.filter(id__in=object_ids)
+        else:
+            objects = model_class.objects.all()
+        
+        total_objects = objects.count()
+        logger.info(f"[TAG GENERATOR] Found {total_objects} objects to tag")
+        
+        if total_objects == 0:
+            return {
+                "model_key": model_key,
+                "total_objects": 0,
+                "tags_assigned": 0,
+                "message": "No objects found to tag"
+            }
+        
+        # Get tag configuration
+        tag_config = config.get('tag_assignments', {})
+        tag_pool = tag_config.get('tag_pool')
+        
+        # Use global TAG_POOL if no specific pool defined
+        if tag_pool is None:
+            from .datasets import TAG_POOL
+            tag_pool = TAG_POOL
+        
+        tags_assigned = 0
+        
+        for obj in objects:
+            # Generate random tags for this object
+            tags_to_assign = random.sample(tag_pool, min(count_per_object, len(tag_pool)))
+            
+            for tag_name in tags_to_assign:
+                try:
+                    # Get or create tag
+                    tag, created = Tag.objects.get_or_create(
+                        name=tag_name,
+                        defaults={'color': '#3366FF', 'description': ''}
+                    )
+                    
+                    # Create tagged item
+                    TaggedItem.objects.get_or_create(
+                        tag=tag,
+                        content_type=ContentType.objects.get_for_model(obj),
+                        object_id=obj.id
+                    )
+                    
+                    tags_assigned += 1
+                    
+                except Exception as e:
+                    logger.error(f"[TAG GENERATOR] Failed to assign tag '{tag_name}' to object {obj.id}: {str(e)}")
+                    continue
+        
+        logger.info(f"[TAG GENERATOR] assign_tags_to_objects COMPLETE: assigned {tags_assigned} tags to {total_objects} objects")
+        
+        return {
+            "model_key": model_key,
+            "total_objects": total_objects,
+            "tags_assigned": tags_assigned,
+            "message": f"Assigned {tags_assigned} tags to {total_objects} objects"
+        }
+
+    @staticmethod
+    @transaction.atomic
+    def remove_tags_from_objects(user, model_key: str, count_per_object: int = None, object_ids: list = None) -> dict:
+        """
+        Remove tags from objects with flexible options.
+        
+        Args:
+            user: User instance for scope isolation
+            model_key: Generator config key
+            count_per_object: Number of tags to remove per object (None = remove all)
+            object_ids: Optional list of specific object IDs to target
+            
+        Returns:
+            Dictionary with removal summary
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"[TAG GENERATOR] remove_tags_from_objects START: model_key={model_key}, count={count_per_object}, object_ids={object_ids}")
+        
+        # Get generator config
+        config = get_generator_config(model_key)
+        if not config:
+            raise ValueError(f"Generator config '{model_key}' not found")
+        
+        model_path = config['model']
+        model_class = GeneratorService.get_model_class(model_path)
+        
+        # Get objects to process (all or filtered by IDs)
+        if object_ids:
+            objects = model_class.objects.filter(id__in=object_ids)
+        else:
+            objects = model_class.objects.all()
+        
+        total_objects = objects.count()
+        logger.info(f"[TAG GENERATOR] Found {total_objects} objects to process")
+        
+        if total_objects == 0:
+            return {
+                "model_key": model_key,
+                "total_objects": 0,
+                "tags_removed": 0,
+                "message": "No objects found to process"
+            }
+        
+        tags_removed = 0
+        
+        for obj in objects:
+            # Get all tags for this object
+            content_type = ContentType.objects.get_for_model(obj)
+            tags = TaggedItem.objects.filter(
+                content_type=content_type,
+                object_id=obj.id
+            )
+            
+            if count_per_object is None:
+                # Remove ALL tags
+                count = tags.count()
+                tags.delete()
+                tags_removed += count
+            else:
+                # Remove N tags (or all if N > available)
+                tags_to_remove = tags.order_by('created')[:count_per_object]
+                count = tags_to_remove.count()
+                tags_to_remove.delete()
+                tags_removed += count
+        
+        logger.info(f"[TAG GENERATOR] remove_tags_from_objects COMPLETE: removed {tags_removed} tags from {total_objects} objects")
+        
+        return {
+            "model_key": model_key,
+            "total_objects": total_objects,
+            "tags_removed": tags_removed,
+            "message": f"Removed {tags_removed} tags from {total_objects} objects"
+        }
