@@ -194,10 +194,15 @@ class AuthEngine:
             )
 
             # Send login notification
+            from django.utils import timezone
             _send_notification(
                 "login_notification",
                 {
                     "user": user,
+                    "username": user.username,
+                    "email": user.email,
+                    "role": user.role if hasattr(user, 'role') else 'READER',
+                    "timestamp": timezone.now().strftime('%d.%m.%Y %H:%M:%S'),
                     "ip_address": _get_ip_address(request),
                     "user_agent": _get_user_agent(request),
                 },

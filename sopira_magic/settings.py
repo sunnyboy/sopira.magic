@@ -47,6 +47,7 @@ from .security_config import (
     get_session_cookie_settings,
     get_csrf_cookie_settings,
     detect_environment,
+    get_elasticsearch_config,
 )
 
 # -----------------------------------------------------------------------------
@@ -68,7 +69,7 @@ DEV_SKIP_AUTH = os.getenv("DEV_SKIP_AUTH", "0") == "1"
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-insecure-secret-key-change-in-production")
 
 # Povolené hosty
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost,testserver").split(",")
 
 # Intelligent CSRF trusted origins - automatically configured based on environment
 CSRF_TRUSTED_ORIGINS = get_csrf_trusted_origins()
@@ -133,8 +134,9 @@ INSTALLED_APPS = [
     "sopira_magic.apps.m_photo",
     "sopira_magic.apps.m_tag",
     "sopira_magic.apps.scheduler",
-    "sopira_magic.apps.caching",
+    "sopira_magic.apps.fk_options_cache",
     "sopira_magic.apps.state",
+    "sopira_magic.apps.mystate",  # New state management module
     "sopira_magic.apps.internationalization",
     "sopira_magic.apps.impex",
     "sopira_magic.apps.api",
@@ -299,6 +301,20 @@ if env_type in ["production", "render"]:
         SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # -----------------------------------------------------------------------------
+# SEARCH SERVICE (Elasticsearch)
+# -----------------------------------------------------------------------------
+_es_cfg = get_elasticsearch_config()
+ELASTICSEARCH_URL = _es_cfg["url"]
+SEARCH_ELASTIC_ENABLED = _es_cfg["enabled"]
+SEARCH_INDEX_PREFIX = _es_cfg["index_prefix"]
+SEARCH_DEFAULT_MODE = _es_cfg["default_mode"]  # simple | advanced
+SEARCH_ALLOW_APPROX = _es_cfg["allow_approx"]
+SEARCH_REQUEST_TIMEOUT = _es_cfg["request_timeout"]
+SEARCH_MAX_PAGE_SIZE = _es_cfg["max_page_size"]
+ELASTICSEARCH_CA_CERT = os.getenv("ELASTICSEARCH_CA_CERT")
+ELASTICSEARCH_VERIFY_CERTS = os.getenv("ELASTICSEARCH_VERIFY_CERTS", "0") == "1"
+
+# -----------------------------------------------------------------------------
 # DEFAULT PRIMARY KEY
 # -----------------------------------------------------------------------------
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -343,6 +359,33 @@ LOGGING = {
         },
     },
 }
+
+# -----------------------------------------------------------------------------
+# EMAIL CONFIGURATION
+# -----------------------------------------------------------------------------
+# Gmail SMTP configuration (migrated from Thermal Eye)
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True  # Use TLS port 587
+EMAIL_USE_SSL = False
+EMAIL_TIMEOUT = 30
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')  # Your Gmail address
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')  # App password (not regular password)
+DEFAULT_FROM_EMAIL = os.getenv('EMAIL_HOST_USER', 'noreply@sopira.com')
+
+# SSL Context for Mac OS (fix certificate issues)
+import ssl
+if hasattr(ssl, '_create_default_https_context'):
+    ssl._create_default_https_context = ssl._create_unverified_context
+
+# Admin email for notifications
+ADMIN_EMAIL = os.getenv('ADMIN_EMAIL', 'sopira@me.com')
+
+# For development, you can use console backend to see emails in console
+# Uncomment below if you want to test without sending real emails:
+# if DEBUG and ENV == "local":
+#     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # -----------------------------------------------------------------------------
 # REST FRAMEWORK

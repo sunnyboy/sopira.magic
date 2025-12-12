@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sopira Magic - Welcome!</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background: #f9fafb;
+            padding: 20px;
+        }
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #ffffff;
+            padding: 40px 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .header p {
+            font-size: 16px;
+            opacity: 0.95;
+        }
+        .content {
+            padding: 40px 30px;
+        }
+        .welcome-message {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .welcome-message h2 {
+            font-size: 24px;
+            color: #111827;
+            margin-bottom: 12px;
+        }
+        .welcome-message p {
+            color: #6b7280;
+            font-size: 16px;
+        }
+        .info-box {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-radius: 8px;
+            padding: 24px;
+            margin: 24px 0;
+        }
+        .info-row {
+            display: flex;
+            padding: 10px 0;
+            border-bottom: 1px solid #dcfce7;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+        .info-row:first-child {
+            padding-top: 0;
+        }
+        .info-label {
+            min-width: 130px;
+            font-weight: 600;
+            color: #065f46;
+            font-size: 14px;
+        }
+        .info-value {
+            flex: 1;
+            color: #047857;
+            font-size: 14px;
+        }
+        .cta-button {
+            display: inline-block;
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+            color: #ffffff;
+            padding: 14px 32px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 16px;
+            margin: 24px 0;
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.3);
+            text-align: center;
+            display: block;
+        }
+        .cta-button:hover {
+            background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+        }
+        .features {
+            margin: 30px 0;
+        }
+        .feature-item {
+            display: flex;
+            align-items: start;
+            margin: 16px 0;
+        }
+        .feature-icon {
+            font-size: 24px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+        .feature-text {
+            flex: 1;
+        }
+        .feature-title {
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 4px;
+        }
+        .feature-description {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .footer {
+            background: #f9fafb;
+            padding: 24px 30px;
+            text-align: center;
+            border-top: 1px solid #e5e7eb;
+        }
+        .footer p {
+            color: #6b7280;
+            font-size: 13px;
+            margin: 4px 0;
+        }
+        @media only screen and (max-width: 600px) {
+            body { padding: 10px; }
+            .header { padding: 30px 20px; }
+            .content { padding: 30px 20px; }
+            .info-box { padding: 20px; }
+            .info-row { flex-direction: column; }
+            .info-label { margin-bottom: 4px; min-width: auto; }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1>🎉 Vitajte v Sopira Magic!</h1>
+            <p>Váš účet bol úspešne vytvorený</p>
+        </div>
+        
+        <div class="content">
+            <div class="welcome-message">
+                <h2>Ahoj, {{ first_name }}! 👋</h2>
+                <p>Sme radi, že ste sa pridali k Sopira Magic platforme.</p>
+            </div>
+            
+            <div class="info-box">
+                <div class="info-row">
+                    <div class="info-label">👤 Užívateľské meno:</div>
+                    <div class="info-value"><strong>{{ username }}</strong></div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">📧 Email:</div>
+                    <div class="info-value">{{ email }}</div>
+                </div>
+            </div>
+            
+            <a href="{{ login_url }}" class="cta-button">
+                🚀 Prihlásiť sa do Sopira Magic
+            </a>
+            
+            <div class="features">
+                <h3 style="margin-bottom: 20px; color: #111827;">Čo môžete očakávať:</h3>
+                
+                <div class="feature-item">
+                    <div class="feature-icon">📊</div>
+                    <div class="feature-text">
+                        <div class="feature-title">Komplexný Dashboard</div>
+                        <div class="feature-description">Prehľadné zobrazenie všetkých dôležitých údajov na jednom mieste</div>
+                    </div>
+                </div>
+                
+                <div class="feature-item">
+                    <div class="feature-icon">🔒</div>
+                    <div class="feature-text">
+                        <div class="feature-title">Bezpečnosť na prvom mieste</div>
+                        <div class="feature-description">Vaše dáta sú chránené najmodernejšími bezpečnostnými opatreniami</div>
+                    </div>
+                </div>
+                
+                <div class="feature-item">
+                    <div class="feature-icon">⚡</div>
+                    <div class="feature-text">
+                        <div class="feature-title">Rýchly a intuitívny</div>
+                        <div class="feature-description">Moderné rozhranie navrhnuté pre maximálnu produktivitu</div>
+                    </div>
+                </div>
+                
+                <div class="feature-item">
+                    <div class="feature-icon">🎯</div>
+                    <div class="feature-text">
+                        <div class="feature-title">Scope Management</div>
+                        <div class="feature-description">Inteligentné riadenie prístupových práv a dátovej hierarchie</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 16px; margin-top: 30px;">
+                <p style="color: #1e40af; font-size: 14px; line-height: 1.5;">
+                    <strong>💡 Tip:</strong> Ak potrebujete pomoc, kontaktujte nášho administrátora alebo navštívte help sekciu v aplikácii.
+                </p>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p><strong>Sopira Magic</strong> • Intelligent Data Management Platform</p>
+            <p>© 2025 Sopira Magic. Všetky práva vyhradené.</p>
+        </div>
+    </div>
+</body>
+</html>
