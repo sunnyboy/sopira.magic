@@ -115,22 +115,22 @@ class CoreConfig(AppConfig):
                 return []
             
             def get_selected_scope(user, scope_level, request=None):
-                """Get currently selected scope from mystate."""
+                """Get currently selected scope.
+                
+                NOTE: Current state is stored in LocalStorage (frontend), not in database.
+                SavedState model contains only saved presets, not current state.
+                
+                For now, fallback to accessible scope (all scopes user has access to).
+                In future, could be extended to read from request session or other
+                persisted storage.
+                """
                 try:
-                    from sopira_magic.apps.mystate.models import SavedState
-                    state = SavedState.objects.filter(user=user, is_current=True).first()
-                    if not state:
-                        return get_accessible_scope(user, scope_level, request)
-                    state_data = state.get_full_state(include_children=False)
-                    if scope_level == 1:
-                        company_id = state_data.get('selected_company')
-                        return [str(company_id)] if company_id else []
-                    elif scope_level == 2:
-                        factory_id = state_data.get('selected_factory')
-                        return [str(factory_id)] if factory_id else []
-                except Exception:
+                    # Fallback to accessible scope
+                    # (returns all companies/factories user has access to)
                     return get_accessible_scope(user, scope_level, request)
-                return []
+                except Exception as e:
+                    logger.debug(f"Could not get selected scope for {user.username}: {e}")
+                    return []
             
             def get_accessible_scope(user, scope_level, request=None):
                 """Get all accessible scopes using relation system."""
