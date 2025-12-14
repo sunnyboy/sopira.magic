@@ -84,12 +84,12 @@ class FKCacheService:
         if base_filters:
             qs = qs.filter(**base_filters)
 
-        # Apply scoping via ScopingEngine only if view is factory_scoped
-        if config.get("factory_scoped"):
-            try:
-                qs = ScopingEngine.apply_rules(qs, user, view_name, config, request)
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("ScopingEngine failed for %s: %s", view_name, exc)
+        # Apply scoping via ScopingEngine (VŽDY pre bezpečnosť)
+        # Scoping sa určuje z SCOPING_RULES_MATRIX, nie z factory_scoped flag
+        try:
+            qs = ScopingEngine.apply(qs, user, view_name, config)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("ScopingEngine failed for %s: %s", view_name, exc)
 
         options: List[Dict[str, Any]] = []
         factory_ids = set()

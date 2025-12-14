@@ -41,13 +41,29 @@ from .services import RelationService
 
 
 def get_user_companies(user) -> models.QuerySet:
-    """Get all companies for a user."""
-    return RelationService.get_related_objects(user, 'user_company')
+    """Get all companies for a user (bivalent: config-driven or hardcoded M2M)."""
+    from sopira_magic.apps.relation.config import RELATION_CONFIG
+    
+    # Try config-driven first (if user_company exists in config)
+    if 'user_company' in RELATION_CONFIG:
+        return RelationService.get_related_objects(user, 'user_company')
+    
+    # Fallback to hardcoded M2M (UserCompany)
+    from sopira_magic.apps.m_company.models import Company
+    return Company.objects.filter(users=user, active=True)
 
 
 def get_company_factories(company) -> models.QuerySet:
-    """Get all factories for a company."""
-    return RelationService.get_related_objects(company, 'company_factory')
+    """Get all factories for a company (bivalent: config-driven or hardcoded FK)."""
+    from sopira_magic.apps.relation.config import RELATION_CONFIG
+    
+    # Try config-driven first (if company_factory exists in config)
+    if 'company_factory' in RELATION_CONFIG:
+        return RelationService.get_related_objects(company, 'company_factory')
+    
+    # Fallback to hardcoded FK (Factory.company)
+    from sopira_magic.apps.m_factory.models import Factory
+    return Factory.objects.filter(company=company, active=True)
 
 
 def get_factory_production_lines(factory) -> models.QuerySet:
@@ -56,13 +72,34 @@ def get_factory_production_lines(factory) -> models.QuerySet:
 
 
 def create_user_company(user, company, metadata: dict = None):
-    """Create relation between user and company."""
-    RelationService.create_relation(user, company, 'user_company', metadata)
+    """Create relation between user and company (bivalent: config or hardcoded M2M)."""
+    from sopira_magic.apps.relation.config import RELATION_CONFIG
+    
+    # Try config-driven first
+    if 'user_company' in RELATION_CONFIG:
+        RelationService.create_relation(user, company, 'user_company', metadata)
+    else:
+        # Use hardcoded M2M (UserCompany)
+        from sopira_magic.apps.m_company.models import UserCompany
+        role = metadata.get('role', 'member') if metadata else 'member'
+        UserCompany.objects.get_or_create(
+            user=user,
+            company=company,
+            defaults={'role': role}
+        )
 
 
 def create_company_factory(company, factory, metadata: dict = None):
-    """Create relation between company and factory."""
-    RelationService.create_relation(company, factory, 'company_factory', metadata)
+    """Create relation between company and factory (bivalent: config or hardcoded FK)."""
+    from sopira_magic.apps.relation.config import RELATION_CONFIG
+    
+    # Try config-driven first
+    if 'company_factory' in RELATION_CONFIG:
+        RelationService.create_relation(company, factory, 'company_factory', metadata)
+    else:
+        # Use hardcoded FK (Factory.company) - already set during factory creation
+        # This function becomes a no-op for hardcoded relations
+        pass
 
 
 def create_factory_production_line(factory, production_line, metadata: dict = None):

@@ -297,13 +297,31 @@ class AuthEngine:
             user_agent=_get_user_agent(request),
         )
 
-        # Send signup notification
+        # Send signup notification to admin
         _send_notification(
-            "signup_notification",
+            "signup_notification_admin",
             {
                 "user": user,
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "role": user.role,
                 "ip_address": _get_ip_address(request),
                 "user_agent": _get_user_agent(request),
+            },
+        )
+
+        # Send welcome notification to new user
+        _send_notification(
+            "signup_notification_user",
+            {
+                "user": user,
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name or user.username,
+                "last_name": user.last_name,
+                "login_url": f"{request.scheme}://{request.get_host()}/login",
             },
         )
 

@@ -37,15 +37,19 @@ const Item = ({ to, children, className }: ItemProps) => (
 
 export default function NavBar() {
   const { isAuthenticated, user, logout } = useAuth();
-  const { getMenu } = useAccessRights();
+  const { getMenu, matrix } = useAccessRights();
   const navigate = useNavigate();
   const [selectedLanguage, setSelectedLanguage] = useState('EN');
 
   const isSuperUser = Boolean(
     user?.is_superuser ||
     user?.is_superuser_role ||
-    user?.is_admin
+    user?.role?.toLowerCase() === 'superadmin'
   );
+  
+  // Get menu dependencies
+  const hasCompanies = matrix?.menu_dependencies?.has_companies ?? false;
+  const hasFactories = matrix?.menu_dependencies?.has_factories ?? false;
 
   const canSeeMenu = (key: string, fallback: boolean = true) => {
     const allowed = getMenu(key);
@@ -84,17 +88,25 @@ export default function NavBar() {
             <>
               <div className="flex items-center gap-1 flex-wrap">
                 {canSeeMenu("dashboard") && <Item to="/dashboard">Dashboard</Item>}
-                {canSeeMenu("measurements") && <Item to="/measurements">Measurements</Item>}
-                {canSeeMenu("companies", isSuperUser) && <Item to="/companies">Company</Item>}
-                {canSeeMenu("factories") && <Item to="/factories">Factories</Item>}
-                {canSeeMenu("locations") && <Item to="/locations">Locations</Item>}
-                {canSeeMenu("carriers") && <Item to="/carriers">Carriers</Item>}
-                {canSeeMenu("drivers") && <Item to="/drivers">Drivers</Item>}
-                {canSeeMenu("pots") && <Item to="/pots">Pots</Item>}
-                {canSeeMenu("pits") && <Item to="/pits">Pits</Item>}
-                {canSeeMenu("machines") && <Item to="/machines">Machines</Item>}
-                {canSeeMenu("cameras") && <Item to="/cameras">Cameras</Item>}
+                
+                {/* Level 0: Always visible if access rights allow */}
                 {canSeeMenu("users") && <Item to="/users">Users</Item>}
+                {canSeeMenu("companies") && <Item to="/companies">Company</Item>}
+                
+                {/* Level 1: Requires companies */}
+                {hasCompanies && canSeeMenu("factories") && <Item to="/factories">Factories</Item>}
+                
+                {/* Level 2: Requires factories */}
+                {hasFactories && canSeeMenu("measurements") && <Item to="/measurements">Measurements</Item>}
+                {hasFactories && canSeeMenu("locations") && <Item to="/locations">Locations</Item>}
+                {hasFactories && canSeeMenu("carriers") && <Item to="/carriers">Carriers</Item>}
+                {hasFactories && canSeeMenu("drivers") && <Item to="/drivers">Drivers</Item>}
+                {hasFactories && canSeeMenu("pots") && <Item to="/pots">Pots</Item>}
+                {hasFactories && canSeeMenu("pits") && <Item to="/pits">Pits</Item>}
+                {hasFactories && canSeeMenu("machines") && <Item to="/machines">Machines</Item>}
+                {hasFactories && canSeeMenu("cameras") && <Item to="/cameras">Cameras</Item>}
+                
+                {/* Generator - superuser only */}
                 {(canSeeMenu("generator", isSuperUser) || isSuperUser) && <Item to="/generator">Generator</Item>}
               </div>
               <div className="flex items-center gap-2">

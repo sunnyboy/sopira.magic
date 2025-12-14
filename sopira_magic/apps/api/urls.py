@@ -52,7 +52,6 @@ class MyUrls:
     
     # ViewSets that should NOT be auto-generated (have custom implementations)
     EXCLUDED_FROM_AUTO_GENERATION = {
-        'users',  # Has custom UserListSerializer, keep separate
         'focusedviews',  # Has custom assign endpoint
         'annotations',  # Has specific config
     }

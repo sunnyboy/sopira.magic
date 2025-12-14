@@ -13,6 +13,11 @@ export type AccessActions = {
 export type AccessRightsMatrix = {
   menu: Record<string, boolean>
   actions: Record<string, AccessActions>
+  menu_dependencies: {
+    has_companies: boolean
+    has_factories: boolean
+  }
+  empty_state_messages: Record<string, string>
 }
 
 type AccessState = {
@@ -24,6 +29,12 @@ type AccessState = {
 const cache: { data: AccessRightsMatrix | null; promise: Promise<AccessRightsMatrix | null> | null } = {
   data: null,
   promise: null,
+}
+
+// Export function to clear cache on logout/login
+export function clearAccessRightsCache() {
+  cache.data = null
+  cache.promise = null
 }
 
 async function fetchAccessRights(): Promise<AccessRightsMatrix | null> {

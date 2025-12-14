@@ -12,6 +12,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { BaseModal } from '@/components/modals/BaseModal';
 import { useAuth } from '@/contexts/AuthContext';
 
+// DEV: Test users for quick login
+const TEST_USERS = [
+  { username: 'sopira', password: 'sopirapass', label: 'Sopira (SA)' },
+  { username: 'fero', password: 'feropass', label: 'Fero (Admin)' },
+  { username: 'test_empty', password: 'testpass', label: 'Empty Admin' },
+];
+
 const Home: React.FC = () => {
   const [openModal, setOpenModal] = useState<string | null>(null);
   const [devLoginLoading, setDevLoginLoading] = useState(false);
@@ -26,16 +33,16 @@ const Home: React.FC = () => {
     setOpenModal(null);
   };
 
-  // DEV: Auto-login as sopira for development testing
-  const handleDevLogin = async () => {
+  // DEV: Direct login with username and password
+  const handleDevLoginDirect = async (username: string, password: string) => {
     setDevLoginLoading(true);
     try {
-      const success = await login('sopira', 'sopirapass');
+      const success = await login(username, password);
       if (success) {
         navigate('/dashboard');
       } else {
-        console.error('Dev login failed');
-        alert('Dev login failed - check if user sopira exists');
+        console.error('Dev login failed for', username);
+        alert(`Dev login failed for ${username}`);
       }
     } catch (error) {
       console.error('Dev login error:', error);
@@ -165,21 +172,29 @@ const Home: React.FC = () => {
               <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
                 Sign in to your account to access advanced features and data management.
               </p>
-              <div className="flex justify-center gap-4">
+              <div className="flex justify-center items-center gap-4">
                 <Link to="/login">
                   <Button variant="solid">
                     Sign In
                   </Button>
                 </Link>
-                <Button 
-                  variant="outline" 
-                  onClick={handleDevLogin}
-                  disabled={devLoginLoading}
-                  className="border-orange-500 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950"
-                >
-                  <Bug className="w-4 h-4 mr-2" />
-                  {devLoginLoading ? 'Logging in...' : 'Dev Login'}
-                </Button>
+                
+                {/* DEV: Quick login buttons */}
+                <div className="grid grid-cols-3 gap-2">
+                  {TEST_USERS.map(user => (
+                    <Button 
+                      key={user.username}
+                      variant="outline" 
+                      onClick={() => handleDevLoginDirect(user.username, user.password)}
+                      disabled={devLoginLoading}
+                      className="border-orange-500 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-950"
+                    >
+                      <Bug className="w-4 h-4 mr-2" />
+                      {user.label}
+                    </Button>
+                  ))}
+                </div>
+                
                 <Link to="/contact">
                   <Button variant="default">
                     Contact

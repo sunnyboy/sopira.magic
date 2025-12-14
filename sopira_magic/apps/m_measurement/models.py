@@ -7,7 +7,7 @@
 Measurement Models.
 
 Measurement is a composite entity with multiple FK relationships.
-Cannot use abstract base class due to complex FK structure.
+Inherits from NamedWithCodeModel for code, name, human_id, tags support.
 
 Scoping: User → Company → Factory → Measurement
 FK Chain: factory, location, carrier, driver, pot, [pit], [machine]
@@ -17,18 +17,40 @@ Children: Photo, Video (via MeasurementRelatedModel)
 from django.core.validators import MinValueValidator, MaxValueValidator, RegexValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
-from sopira_magic.apps.core.models import TimeStampedModel
+from sopira_magic.apps.core.models import NamedWithCodeModel
 
 
-class Measurement(TimeStampedModel):
+class Measurement(NamedWithCodeModel):
     """
     Measurement - core business entity.
     
-    Note: Explicit FKs (not via abstract base) due to:
+    Inherits from NamedWithCodeModel:
+    - code, name, human_id (identification)
+    - comment, note (documentation)
+    - tags (GenericRelation)
+    - active, visible (status)
+    - created, updated (timestamps)
+    
+    Note: Explicit FKs (not via FactoryScopedModel) due to:
     - Multiple FK relationships (7 entities)
     - Different null constraints per FK
     - Complex composite indexes
     """
+    
+    # Override code and name to be nullable for migration
+    code = models.CharField(
+        max_length=64,
+        db_index=True,
+        null=True,  # TEMP for migration
+        blank=True,
+        help_text=_("Unique code within scope (e.g., abbreviation)")
+    )
+    name = models.CharField(
+        max_length=255,
+        db_index=True,
+        null=True,  # TEMP for migration
+        blank=True,
+    )
     
     class PotSide(models.TextChoices):
         FRONT = "FRONT", _("FRONT")
@@ -166,9 +188,7 @@ class Measurement(TimeStampedModel):
         help_text=_("Pole bodov čas-hodnota pre TEMP graf")
     )
 
-    # poznámky
-    comment = models.TextField(blank=True, default="")
-    note = models.TextField(blank=True, default="")
+    # comment, note - inherited from NamedWithCodeModel
 
     _time_label_validator = RegexValidator(
         regex=r"^\d{2}:\d{2}:\d{2}(\.\d{1,3})?$",

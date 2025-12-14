@@ -44,3 +44,7 @@ class AccessRightsConfigTests(SimpleTestCase):
 
 
 
+
+
+
+

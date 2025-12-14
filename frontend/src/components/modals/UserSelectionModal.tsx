@@ -194,9 +194,9 @@ export function UserSelectionModal({
                       </div>
                     )}
                   </div>
-                  {(u.is_staff || u.is_admin || u.is_superuser_role) && (
+                  {(u.is_staff || u.role?.toLowerCase() === 'admin' || u.role?.toLowerCase() === 'superadmin' || u.is_superuser_role) && (
                     <span className="text-xs px-2 py-1 bg-primary/10 text-primary rounded shrink-0 ml-2">
-                      {u.is_superuser_role ? 'Superuser' : u.is_admin ? 'Admin' : 'Staff'}
+                      {u.is_superuser_role || u.role?.toLowerCase() === 'superadmin' ? 'Superuser' : u.role?.toLowerCase() === 'admin' ? 'Admin' : 'Staff'}
                     </span>
                   )}
                 </div>

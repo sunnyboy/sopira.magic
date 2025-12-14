@@ -63,6 +63,32 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
     visible: false, // footer rendruje wrapper
   },
 
+  // ============================================
+  // PARENT ENTITY SELECTION (Hierarchical 3-level)
+  // ============================================
+  parentHierarchy: [
+    {
+      field: 'company',
+      endpoint: 'companies',
+      label: 'Company',
+      requiredMessage: 'Create company first'
+    },
+    {
+      field: 'factory',
+      endpoint: 'factories',
+      label: 'Factory',
+      parentField: 'company',  // Filter factories by selected company
+      requiredMessage: 'Create factory first'
+    },
+    {
+      field: 'location',
+      endpoint: 'locations',
+      label: 'Location',
+      parentField: 'factory',  // Filter locations by selected factory
+      requiredMessage: 'Create location first'
+    }
+  ],
+
   fieldsMatrix: {
     uuid: {
       type: 'text',
@@ -78,6 +104,53 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       sortable: false,
       resizable: true,
     },
+    
+    // Identification fields (inherited from NamedWithCodeModel)
+    code: {
+      type: 'text',
+      header: 'Code',
+      size: 100,
+      order: 35,
+      isInColumnPanel: true,
+      defaultVisible: true,
+      isInFilterPanel: true,
+      editableInEditModal: true,
+      editableInline: true,
+      editableInAddModal: true,
+      required: true,
+      sortable: true,
+      resizable: true,
+    },
+    name: {
+      type: 'text',
+      header: 'Name',
+      size: 200,
+      order: 36,
+      isInColumnPanel: true,
+      defaultVisible: true,
+      isInFilterPanel: true,
+      editableInEditModal: true,
+      editableInline: true,
+      editableInAddModal: true,
+      required: true,
+      sortable: true,
+      resizable: true,
+    },
+    human_id: {
+      type: 'text',
+      header: 'Human ID',
+      size: 100,
+      order: 37,
+      isInColumnPanel: true,
+      defaultVisible: false,
+      isInFilterPanel: false,
+      editableInEditModal: false,
+      editableInline: false,
+      editableInAddModal: false,
+      sortable: true,
+      resizable: true,
+    },
+    
     id: {
       type: 'text',
       header: 'ID',
@@ -190,6 +263,89 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       sortable: false,
       resizable: true,
     },
+    
+    // FK fields for Add/Edit modals (correct API field names)
+    carrier: {
+      type: 'fk',
+      header: 'Carrier',
+      size: 150,
+      order: 71,
+      isInColumnPanel: false,  // Hidden in table (use display_label instead)
+      defaultVisible: false,
+      isInFilterPanel: false,
+      editableInEditModal: true,
+      editableInline: false,
+      editableInAddModal: true,  // Show in Add modal
+      sortable: false,
+      resizable: true,
+      fkEndpoint: 'carriers',
+      required: false,
+    },
+    driver: {
+      type: 'fk',
+      header: 'Driver',
+      size: 150,
+      order: 81,
+      isInColumnPanel: false,
+      defaultVisible: false,
+      isInFilterPanel: false,
+      editableInEditModal: true,
+      editableInline: false,
+      editableInAddModal: true,
+      sortable: false,
+      resizable: true,
+      fkEndpoint: 'drivers',
+      required: false,
+    },
+    pot: {
+      type: 'fk',
+      header: 'Pot',
+      size: 120,
+      order: 91,
+      isInColumnPanel: false,
+      defaultVisible: false,
+      isInFilterPanel: false,
+      editableInEditModal: true,
+      editableInline: false,
+      editableInAddModal: true,
+      sortable: false,
+      resizable: true,
+      fkEndpoint: 'pots',
+      required: false,
+    },
+    pit: {
+      type: 'fk',
+      header: 'Pit',
+      size: 120,
+      order: 101,
+      isInColumnPanel: false,
+      defaultVisible: false,
+      isInFilterPanel: false,
+      editableInEditModal: true,
+      editableInline: false,
+      editableInAddModal: true,
+      sortable: false,
+      resizable: true,
+      fkEndpoint: 'pits',
+      required: false,
+    },
+    machine: {
+      type: 'fk',
+      header: 'Machine',
+      size: 150,
+      order: 111,
+      isInColumnPanel: false,
+      defaultVisible: false,
+      isInFilterPanel: false,
+      editableInEditModal: true,
+      editableInline: false,
+      editableInAddModal: false,  // NOT in Add modal
+      sortable: false,
+      resizable: true,
+      fkEndpoint: 'machines',
+      required: false,
+    },
+    
     active: {
       type: 'boolean',
       header: 'Active',
@@ -203,6 +359,7 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       filterType: 'boolean',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false,  // NOT in Add modal
       sortable: true,
       resizable: true,
       trueLabel: 'Active',
@@ -221,6 +378,7 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       filterType: 'boolean',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false,  // NOT in Add modal
       sortable: true,
       resizable: true,
       trueLabel: 'Visible',
@@ -270,6 +428,7 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       isInFilterPanel: false,
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false,  // NOT in Add modal
       sortable: false,
       resizable: true,
       multiline: true,
@@ -284,12 +443,13 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       isInFilterPanel: false,
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false,  // NOT in Add modal
       sortable: false,
       resizable: true,
       multiline: true,
     },
     tags: {
-      type: 'text',
+      type: 'tag',
       header: 'Tags',
       size: 180,
       order: 240,
@@ -299,9 +459,9 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       filterType: 'text',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false,  // NOT in Add modal
       sortable: false,
       resizable: true,
-      multiline: true,
     },
     dump_date: {
       type: 'date',
@@ -343,6 +503,7 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       isInFilterPanel: false,
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false,  // NOT in Add modal
       sortable: false,
       resizable: true,
     },
@@ -356,6 +517,7 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       isInFilterPanel: false,
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false,  // NOT in Add modal
       sortable: false,
       resizable: true,
     },
@@ -369,6 +531,7 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       isInFilterPanel: false,
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false,  // NOT in Add modal
       sortable: true,
       resizable: true,
     },
@@ -382,6 +545,7 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       isInFilterPanel: false,
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false,  // NOT in Add modal
       sortable: true,
       resizable: true,
     },
@@ -395,6 +559,7 @@ export const measurementTableConfig: MyTableConfig<Measurement> = {
       isInFilterPanel: false,
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false,  // NOT in Add modal
       sortable: true,
       resizable: true,
     },

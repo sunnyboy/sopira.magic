@@ -24,7 +24,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.serializers import Serializer
 
 from sopira_magic.apps.m_user.models import User
-from sopira_magic.apps.m_company.models import Company
+from sopira_magic.apps.m_company.models import Company, UserCompany
 from sopira_magic.apps.m_factory.models import Factory
 from sopira_magic.apps.m_location.models import Location
 from sopira_magic.apps.m_carrier.models import Carrier
@@ -39,10 +39,54 @@ from sopira_magic.apps.pdfviewer.serializers import (
     FocusedViewSerializer,
     AnnotationSerializer,
 )
-from .serializers import UserListSerializer, CompanySerializer
+from .serializers import MySerializer
 
 
 IS_LOCAL_ENV = getattr(settings, "ENV", "local") == "local"
+
+
+def _protect_sa_user_deactivation(instance, validated_data):
+    """
+    Protection: SA user (sopira) cannot be deactivated.
+    
+    If someone tries to set is_active=False for sopira, revert it to True.
+    This prevents accidental lockout of the superadmin account.
+    
+    Args:
+        instance: User instance being updated
+        validated_data: Dict with validated update data
+    
+    Returns:
+        tuple: (modified_validated_data, warnings_list)
+    """
+    warnings = []
+    
+    # Check if this is sopira AND is_active is being changed to False
+    if instance.username == 'sopira' and 'is_active' in validated_data:
+        if validated_data['is_active'] is False:
+            # Auto-revert to True - prevent SA deactivation
+            validated_data['is_active'] = True
+            warnings.append("SuperAdmin user (sopira) cannot be deactivated")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"[SA Protection] {warnings[0]}")
+    
+    return (validated_data, warnings)
+
+
+def _auto_assign_company_creator(instance, request):
+    """
+    Auto-assign user to newly created company as owner.
+    
+    Called via after_create hook in companies ViewSet config.
+    Creates UserCompany M2M relationship so admin can see their created companies.
+    """
+    if request and request.user and request.user.is_authenticated:
+        UserCompany.objects.get_or_create(
+            user=request.user,
+            company=instance,
+            defaults={'role': 'owner'}
+        )
 
 
 class ViewConfig(TypedDict, total=False):
@@ -79,7 +123,7 @@ class ViewConfig(TypedDict, total=False):
     
     # Features
     soft_delete: bool  # Use active=False instead of delete
-    factory_scoped: bool  # Filter by user's factories
+    factory_scoped: bool  # [DEPRECATED/METADATA] TE legacy flag. Scoping sa určuje z SCOPING_RULES_MATRIX, NIE z tohto flagu!
     dynamic_search: bool  # Use visible columns for search
     
     # Table state integration
@@ -112,8 +156,8 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
     # Users admin endpoint
     "users": {
         "model": User,
-        "serializer_read": UserListSerializer,
-        "serializer_write": UserListSerializer,
+        "serializer_read": None,  # Use MySerializer.create_serializer("users")
+        "serializer_write": None,  # Use MySerializer.create_serializer("users")
         # No implicit filters; permissions + scoping control visibility
         "base_filters": {},
         # Ownership hierarchy for scoping engine
@@ -130,20 +174,31 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
             "date_joined",
         ],
         "default_ordering": ["username"],
+        "select_related": [],
+        "prefetch_related": ["companies"],  # FIX: Avoid N+1 queries for M2M companies relation
+        # Protection: SA user (sopira) cannot be deactivated
+        "before_update": lambda instance, validated_data, request: _protect_sa_user_deactivation(instance, validated_data),
     },
     
     # =====================================================================
     # Thermal Eye Models (migrated)
     # =====================================================================
     
-    # Companies - Superuser-only access
+    # Companies - User-owned via RelationInstance
     "companies": {
         "model": Company,
-        "serializer_read": CompanySerializer,
-        "serializer_write": CompanySerializer,
+        "serializer_read": None,  # Use MySerializer.create_serializer("companies")
+        "serializer_write": None,  # Use MySerializer.create_serializer("companies")
         "base_filters": {},
-        # Scoping: Superuser only in this iteration
-        "ownership_hierarchy": ["users"],
+        # Scoping: User → Company (via RelationInstance)
+        # Conceptual level 1 (company) → ownership_hierarchy index 0 (id field)
+        "ownership_hierarchy": ["id"],  # Company.id is the scope field
+        "scope_level_mapping": {
+            1: 0,  # Conceptual level 1 (company) → index 0 (id)
+        },
+        "scope_level_metadata": {
+            0: {"name": "Company", "field": "id"},  # Index 0 = company.id
+        },
         "search_fields": ["name", "code", "human_id"],
         "ordering_fields": "__all__",
         "default_ordering": ["name"],
@@ -153,7 +208,10 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         "table_name": "companies",
         "fk_display_template": "{code}-{name}",
         "select_related": [],
-        "require_superuser": True,
+        "require_superuser": False,  # Changed: Allow admins to access their companies
+        # Auto-assign creator to company
+        "after_create": lambda instance, request: _auto_assign_company_creator(instance, request),
+        "prefetch_related": ["tags__tag", "users", "factory_factorys"],  # Avoid N+1 on tags, users M2M, and factories reverse FK
     },
     
     # Factories - Company-owned
@@ -179,7 +237,9 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         "fk_display_template": "{name}",
         # FK configuration
         "fk_fields": {"company": "companies"},
+        # Query optimization - FIX: N+1 query problem
         "select_related": ["company"],
+        "prefetch_related": ["tags__tag"],  # Avoid N+1 on tags GenericRelation
     },
     
     # Locations - Factory-scoped lookup entity
@@ -204,6 +264,7 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         "fk_display_template": "{code} - {name}",
         "fk_fields": {"factory": "factories"},
         "select_related": ["factory"],
+        "prefetch_related": ["tags__tag"],  # Avoid N+1 on tags GenericRelation
     },
     
     # Carriers - Factory-scoped lookup entity
@@ -222,6 +283,7 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         "fk_display_template": "{code} - {name}",
         "fk_fields": {"factory": "factories"},
         "select_related": ["factory"],
+        "prefetch_related": ["tags__tag"],  # Avoid N+1 on tags GenericRelation
     },
     
     # Drivers - Factory-scoped lookup entity
@@ -240,6 +302,7 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         "fk_display_template": "{code} - {name}",
         "fk_fields": {"factory": "factories"},
         "select_related": ["factory"],
+        "prefetch_related": ["tags__tag"],  # Avoid N+1 on tags GenericRelation
     },
     
     # Pots - Factory-scoped lookup entity
@@ -258,6 +321,7 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         "fk_display_template": "{code} - {name}",
         "fk_fields": {"factory": "factories"},
         "select_related": ["factory"],
+        "prefetch_related": ["tags__tag"],  # Avoid N+1 on tags GenericRelation
     },
     
     # Pits - Factory-scoped with optional Location
@@ -276,6 +340,7 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         "fk_display_template": "{code} - {name}",
         "fk_fields": {"factory": "factories", "location": "locations"},
         "select_related": ["factory", "location"],
+        "prefetch_related": ["tags__tag"],  # Avoid N+1 on tags GenericRelation
     },
     
     # Machines - Factory-scoped
@@ -294,6 +359,7 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         "fk_display_template": "{code} - {name}",
         "fk_fields": {"factory": "factories"},
         "select_related": ["factory"],
+        "prefetch_related": ["tags__tag"],  # Avoid N+1 on tags GenericRelation
     },
     
     # Cameras - Factory-scoped with optional Location
@@ -312,6 +378,7 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         "fk_display_template": "{code} - {name}",
         "fk_fields": {"factory": "factories", "location": "locations"},
         "select_related": ["factory", "location"],
+        "prefetch_related": ["tags__tag"],  # Avoid N+1 on tags GenericRelation
         "include_unassigned_for_superuser": True,
     },
     
@@ -323,7 +390,7 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
         "base_filters": {},
         "ownership_hierarchy": ["factory__company__users", "factory_id"],
         "search_fields": [
-            "id", "comment", "note",
+            "id", "code", "name", "comment", "note",
             "factory__name", "factory__code",
             "location__name", "carrier__name", "carrier__code",
             "driver__name", "driver__code", "pot__name", "pot__code",
@@ -344,6 +411,7 @@ VIEWS_MATRIX: Dict[str, ViewConfig] = {
             "machine": "machines",
         },
         "select_related": ["factory", "location", "carrier", "driver", "pot", "pit", "machine"],
+        "prefetch_related": ["tags__tag"],  # Avoid N+1 on tags GenericRelation
     },
     # PdfViewer focused views endpoint
     "focusedviews": {
@@ -673,6 +741,19 @@ CUSTOM_ENDPOINTS: Dict[str, CustomEndpointConfig] = {
         "view_function": "sopira_magic.apps.api.views.generator_tags_remove_view",
         "name": "generator-tags-remove",
         "methods": ["POST"],
+        "permission_classes": ["IsAuthenticated"],
+        "cors_enabled": True,
+    },
+    
+    # =========================================================================
+    # DB Watchdog Endpoint (DEV only)
+    # =========================================================================
+    
+    "db-watchdog": {
+        "path": "db-watchdog/",
+        "view_function": "sopira_magic.apps.api.views_db_watchdog.db_watchdog_view",
+        "name": "db-watchdog",
+        "methods": ["GET"],
         "permission_classes": ["IsAuthenticated"],
         "cors_enabled": True,
     },

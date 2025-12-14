@@ -197,7 +197,7 @@ export function UserPreferencesPage() {
                         <div>
                           <Label className="text-xs font-semibold text-muted-foreground">Role</Label>
                           <div className="text-sm mt-1 font-medium">
-                            {user?.role_display ?? user?.role ?? (user?.is_superuser_role ? "Superuser" : user?.is_admin ? "Admin" : user?.can_manage_factories ? "Staff" : user?.can_edit ? "Editor" : user?.can_read ? "Reader" : "AdHoc")}
+                            {user?.role_display ?? user?.role ?? "Unknown"}
                           </div>
                         </div>
                         {user?.first_name || user?.last_name ? (

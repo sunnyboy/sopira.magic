@@ -1,15 +1,15 @@
 //*........................................................
-//*       www/thermal_eye_ui/src/components/modals/AddRecordModal.tsx
-//*       Generic modal add component for adding new records
+//*       frontend/src/components/modals/AddRecordWithSelectModal.tsx
+//*       Generic modal for adding child records with hierarchical parent selection
 //*
-//*       Purpose: Add new records via modal form
-//*       Uses: FormModal as base, dynamically generates fields from fieldsMatrix
-//*       
+//*       Purpose: ConfigDriven modal for parent-child relationships with multi-level cascade
 //*       Features:
-//*       - Dynamically generates form fields from fieldsMatrix (only addEditable: true)
-//*       - Validates required fields before submit
-//*       - Shows toast messages on success/error
-//*       - Uses useErrorHandler for error handling
+//*       - Single level: company
+//*       - Two level: company → factory
+//*       - Three level: company → factory → location
+//*       - 0 parents: disabled modal with message
+//*       - 1 parent at each level: readonly field (automatically selected)
+//*       - 2+ parents: dropdown selector with cascade filtering
 //*........................................................
 
 import React, { useState, useEffect } from 'react';
@@ -24,34 +24,46 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { Calendar as CalendarIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { TagEditor } from '@/components/TagEditor';
-import { useScope } from '@/contexts/ScopeContext';
 import { API_BASE } from '@/config/api';
-import { getModelEndpoint } from '@/config/modelMetadata';
 import { getMutatingHeaders } from '@/security/csrf';
 import type { FieldConfig, ForeignKeyFieldConfig, SelectFieldConfig, TagFieldConfig } from '../ui_custom/table/fieldFactory';
 import { ConditionalFKSelect } from '../ui_custom/table/ConditionalFKSelect';
+import { EmptyState } from '../ui_custom/EmptyState';
 
 type Option = { id: string; label: string };
 
-/**
- * Normalize order value to a valid number
- * Handles: undefined, null, NaN, Infinity, non-numbers
- * Returns: valid number or fallback (999)
- */
-function normalizeOrder(value: number | undefined | null): number {
-  if (typeof value !== 'number') return 999;
-  if (!Number.isFinite(value)) return 999; // NaN, Infinity, -Infinity
-  return value; // 0, negative, positive - all valid
+interface HierarchyLevel {
+  field: string;              // 'company', 'factory', 'location'
+  endpoint: string;           // 'companies', 'factories', 'locations'
+  label: string;              // 'Company', 'Factory', 'Location'
+  parentField?: string;       // 'company' for factory, 'factory' for location
+  requiredMessage?: string;   // 'Create company first'
+}
+
+interface HierarchyState {
+  level: number;
+  field: string;
+  selectedValue: string | null;
+  options: Option[];
+  loading: boolean;
 }
 
 /**
- * Sort fields by order (with secondary sort by field key for stability)
+ * Normalize order value to a valid number
+ */
+function normalizeOrder(value: number | undefined | null): number {
+  if (typeof value !== 'number') return 999;
+  if (!Number.isFinite(value)) return 999;
+  return value;
+}
+
+/**
+ * Sort fields by order
  */
 function sortFieldsByAddOrder<T>(
   fields: [string, FieldConfig<T>][]
 ): [string, FieldConfig<T>][] {
   return [...fields].sort(([keyA, configA], [keyB, configB]) => {
-    // Primary sort: order value (orderInAddModal ?? order)
     const orderA = normalizeOrder(
       (configA as any).orderInAddModal ?? (configA as any).order
     );
@@ -59,7 +71,6 @@ function sortFieldsByAddOrder<T>(
       (configB as any).orderInAddModal ?? (configB as any).order
     );
     
-    // If same order, use secondary sort by field key (alphabetical)
     if (orderA === orderB) {
       return keyA.localeCompare(keyB);
     }
@@ -110,7 +121,7 @@ async function fetchAllOptions(endpoint: string, params: Record<string, string> 
       if (!results.length) break;
       page += 1;
     } catch (error) {
-      console.warn(`Failed to load FK options from ${endpoint}:`, error);
+      console.warn(`Failed to load options from ${endpoint}:`, error);
       return [];
     }
   }
@@ -118,98 +129,254 @@ async function fetchAllOptions(endpoint: string, params: Record<string, string> 
   return out.sort((a, b) => a.label.localeCompare(b.label));
 }
 
-interface AddRecordModalProps<T extends Record<string, any>> {
+interface AddRecordWithSelectModalProps<T extends Record<string, any>> {
   open: boolean;
   fieldsMatrix: Record<string, FieldConfig<T>>;
   apiEndpoint: string;
-  singularName?: string;  // Singular model name (e.g., "Location", "Factory")
+  singularName?: string;
+  
+  // Hierarchical parent selection (NEW)
+  parentHierarchy?: HierarchyLevel[];
+  
+  // Legacy single-parent support (backward compatible)
+  parentField?: string;
+  parentEndpoint?: string;
+  parentOptions?: Option[];
+  parentRequiredMessage?: string;
+  parentLabel?: string;
+  
   onClose: () => void;
   onSuccess?: (newRecord: T) => void;
   getCsrfToken?: () => string | null;
 }
 
 /**
- * Generic AddRecordModal component
- * Dynamically generates form fields from fieldsMatrix (only addEditable: true)
+ * AddRecordWithSelectModal component
+ * 
+ * ConfigDriven modal for adding child records with hierarchical parent selection:
+ * - Single level (e.g., factory → company)
+ * - Two levels (e.g., location → factory → company)
+ * - Three levels (e.g., measurement → location → factory → company)
+ * - Auto-detects readonly vs dropdown based on option count
+ * - Cascade filtering: selecting parent filters child options
  */
-export function AddRecordModal<T extends Record<string, any>>({
+export function AddRecordWithSelectModal<T extends Record<string, any>>({
   open,
   fieldsMatrix,
   apiEndpoint,
   singularName = 'Record',
+  parentHierarchy: providedHierarchy,
+  // Legacy props
+  parentField: legacyParentField,
+  parentEndpoint: legacyParentEndpoint,
+  parentOptions: legacyParentOptions,
+  parentRequiredMessage: legacyRequiredMessage,
+  parentLabel: legacyParentLabel,
   onClose,
   onSuccess,
   getCsrfToken,
-}: AddRecordModalProps<T>) {
+}: AddRecordWithSelectModalProps<T>) {
   const { handleSaveError } = useErrorHandler();
   const [formData, setFormData] = useState<Partial<T>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { selectedFactories } = useScope();
+  const [hierarchyState, setHierarchyState] = useState<HierarchyState[]>([]);
   const [fkOptions, setFkOptions] = useState<Record<string, Option[]>>({});
   const [loadingFkOptions, setLoadingFkOptions] = useState<Record<string, boolean>>({});
 
   // System fields that should be excluded from Add modal by default
   const SYSTEM_FIELDS = ['id', 'uuid', 'created', 'updated', 'created_by', 'created_by_username'];
 
-  // Reset form when modal closes
+  // Auto-migrate legacy config to parentHierarchy
+  const parentHierarchy: HierarchyLevel[] = React.useMemo(() => {
+    if (providedHierarchy && providedHierarchy.length > 0) {
+      return providedHierarchy;
+    }
+    
+    // Legacy fallback
+    if (legacyParentField && legacyParentEndpoint) {
+      return [{
+        field: legacyParentField,
+        endpoint: legacyParentEndpoint,
+        label: legacyParentLabel || 'Parent',
+        requiredMessage: legacyRequiredMessage
+      }];
+    }
+    
+    return [];
+  }, [providedHierarchy, legacyParentField, legacyParentEndpoint, legacyParentLabel, legacyRequiredMessage]);
+
+  // Load hierarchy options when modal opens
   useEffect(() => {
-    if (!open) {
+    if (!open || parentHierarchy.length === 0) {
       setFormData({});
       setIsSubmitting(false);
+      setHierarchyState([]);
       setFkOptions({});
       setLoadingFkOptions({});
       return;
     }
 
-    // Load FK options when modal opens
+    const loadHierarchy = async () => {
+      const states: HierarchyState[] = [];
+
+      // Load root level (level 0)
+      const rootLevel = parentHierarchy[0];
+      const endpoint = rootLevel.endpoint.startsWith('/api/') 
+        ? rootLevel.endpoint 
+        : `/api/${rootLevel.endpoint}`;
+      
+      const rootOptions = await fetchAllOptions(endpoint);
+      
+      states.push({
+        level: 0,
+        field: rootLevel.field,
+        selectedValue: rootOptions.length === 1 ? rootOptions[0].id : null,
+        options: rootOptions,
+        loading: false
+      });
+
+      // Initialize child levels (empty, disabled)
+      for (let i = 1; i < parentHierarchy.length; i++) {
+        states.push({
+          level: i,
+          field: parentHierarchy[i].field,
+          selectedValue: null,
+          options: [],
+          loading: false
+        });
+      }
+
+      setHierarchyState(states);
+
+      // If root has 1 option, auto-select and load next level
+      if (rootOptions.length === 1) {
+        setFormData(prev => ({ ...prev, [rootLevel.field]: rootOptions[0].id } as Partial<T>));
+        
+        // Load next level if exists
+        if (parentHierarchy.length > 1) {
+          await loadChildLevel(states, 0, rootOptions[0].id);
+        }
+      }
+    };
+
+    loadHierarchy();
+  }, [open, parentHierarchy]);
+
+  // Load child level options based on parent selection
+  const loadChildLevel = async (currentStates: HierarchyState[], parentLevelIndex: number, parentValue: string) => {
+    if (parentLevelIndex + 1 >= parentHierarchy.length) return;
+
+    const childLevel = parentHierarchy[parentLevelIndex + 1];
+    const parentFieldName = childLevel.parentField;
+
+    // Set loading
+    setHierarchyState(prev => {
+      const next = [...prev];
+      next[parentLevelIndex + 1].loading = true;
+      return next;
+    });
+
+    // Fetch filtered options
+    const endpoint = childLevel.endpoint.startsWith('/api/') 
+      ? childLevel.endpoint 
+      : `/api/${childLevel.endpoint}`;
+    
+    const params = parentFieldName ? { [parentFieldName]: parentValue } : {};
+    const options = await fetchAllOptions(endpoint, params);
+
+    setHierarchyState(prev => {
+      const next = [...prev];
+      next[parentLevelIndex + 1].options = options;
+      next[parentLevelIndex + 1].loading = false;
+      
+      // Auto-select if only 1 option
+      if (options.length === 1) {
+        next[parentLevelIndex + 1].selectedValue = options[0].id;
+        setFormData(prev => ({ ...prev, [childLevel.field]: options[0].id } as Partial<T>));
+        
+        // Recursively load next level if exists
+        if (parentLevelIndex + 2 < parentHierarchy.length) {
+          loadChildLevel(next, parentLevelIndex + 1, options[0].id);
+        }
+      }
+      
+      return next;
+    });
+  };
+
+  // Handle hierarchy selection change
+  const handleHierarchyChange = async (levelIndex: number, value: string) => {
+    const level = parentHierarchy[levelIndex];
+    
+    // Update current level
+    setHierarchyState(prev => {
+      const next = [...prev];
+      next[levelIndex].selectedValue = value;
+      return next;
+    });
+    
+    setFormData(prev => ({ ...prev, [level.field]: value } as Partial<T>));
+
+    // Clear all child levels
+    setHierarchyState(prev => {
+      const next = [...prev];
+      for (let i = levelIndex + 1; i < next.length; i++) {
+        next[i].selectedValue = null;
+        next[i].options = [];
+        const childField = parentHierarchy[i].field;
+        setFormData(prev => {
+          const updated = { ...prev };
+          delete updated[childField as keyof T];
+          return updated;
+        });
+      }
+      return next;
+    });
+
+    // Load next level options
+    await loadChildLevel(hierarchyState, levelIndex, value);
+  };
+
+  // Load FK options for other fields (excluding hierarchy fields)
+  useEffect(() => {
+    if (!open || hierarchyState.length === 0) return;
+
+    // Check if all hierarchy levels are selected
+    const allHierarchySelected = hierarchyState.every(state => state.selectedValue !== null);
+    if (!allHierarchySelected) return;
+
     const loadOptions = async () => {
+      const hierarchyFields = parentHierarchy.map(level => level.field);
+      
       const fkFields = Object.entries(fieldsMatrix).filter(
-        ([_, config]) => config.type === 'fk' && (config as any).editableInAddModal !== false
+        ([key, config]) => 
+          !hierarchyFields.includes(key) && // Exclude hierarchy fields
+          config.type === 'fk' && 
+          (config as any).editableInAddModal !== false
       ) as [string, ForeignKeyFieldConfig<T>][];
 
       for (const [key, config] of fkFields) {
         setLoadingFkOptions(prev => ({ ...prev, [key]: true }));
         try {
-          let params: Record<string, string> = {};
+          let endpoint = (config.apiEndpoint && config.apiEndpoint.trim() !== '') 
+            ? config.apiEndpoint 
+            : '';
           
-          // Determine endpoint: use apiEndpoint if provided (non-empty), otherwise construct from pluralName or modelMetadata
-          // Empty string ('') is treated as "not set" and triggers fallback logic
-          let endpoint = (config.apiEndpoint && config.apiEndpoint.trim() !== '') ? config.apiEndpoint : '';
-          if (!endpoint) {
-            if (config.pluralName) {
-              endpoint = `/api/${config.pluralName}`;
-            } else {
-              // Use modelMetadata for endpoint detection (SSOT)
-              endpoint = getModelEndpoint(key);
-              if (!endpoint || endpoint.trim() === '') {
-                // Skip loading if modelMetadata returns empty (model has no API endpoint)
-                console.warn(`[AddRecordModal] Skipping FK options for ${key}: no API endpoint in modelMetadata`);
-                setFkOptions(prev => ({ ...prev, [key]: [] }));
-                setLoadingFkOptions(prev => ({ ...prev, [key]: false }));
-                continue;
-              }
-              // Fallback removed - if modelMetadata fails, skip loading
-            }
+          if (!endpoint && config.pluralName) {
+            endpoint = `/api/${config.pluralName}`;
           }
           
-          // Skip loading options if endpoint is empty (model has no API endpoint)
           if (!endpoint || endpoint.trim() === '') {
-            console.warn(`[AddRecordModal] Skipping FK options for ${key}: no API endpoint available`);
+            console.warn(`[AddRecordWithSelectModal] Skipping FK options for ${key}: no API endpoint`);
             setFkOptions(prev => ({ ...prev, [key]: [] }));
             setLoadingFkOptions(prev => ({ ...prev, [key]: false }));
             continue;
           }
           
-          // For factory field in Add modal: use selectedFactories (scope) instead of all_accessible
-          // This ensures users can only select from factories they've chosen in Dashboard
-          if (config.useAllAccessible && key === 'factory' && selectedFactories.length > 0) {
-            // Override: use selected factories instead of all accessible
-            params.factory_ids = selectedFactories.join(',');
-          } else if (config.useAllAccessible) {
+          const params: Record<string, string> = {};
+          if (config.useAllAccessible) {
             params.all_accessible = 'true';
           }
-          // Backend automatically applies scope - no need to send factory_ids
-          // scopedByFactory flag is deprecated - backend handles scoping automatically
           
           const options = await fetchAllOptions(endpoint, params);
           setFkOptions(prev => ({ ...prev, [key]: options }));
@@ -223,88 +390,20 @@ export function AddRecordModal<T extends Record<string, any>>({
     };
 
     loadOptions();
-  }, [open, fieldsMatrix, selectedFactories]);
+  }, [open, fieldsMatrix, hierarchyState, parentHierarchy]);
 
-  // Dynamically reload scoped FK options when factory field changes
-  useEffect(() => {
-    if (!open) return;
-
-    // Find factory field from config (field with useAllAccessible=true)
-    const factoryFieldConfig = Object.entries(fieldsMatrix).find(
-      ([_, cfg]) => cfg.type === 'fk' && (cfg as ForeignKeyFieldConfig<T>).useAllAccessible
-    );
-    if (!factoryFieldConfig) return;
-
-    const factoryFieldKey = factoryFieldConfig[0];
-    const factoryValue = formData[factoryFieldKey as keyof T];
-    if (!factoryValue) return;
-
-    const factoryId = typeof factoryValue === 'string' 
-      ? factoryValue 
-      : (factoryValue as any)?.id || String(factoryValue);
-
-    // Backend automatically applies scope - all FK fields are automatically scoped
-    // No need to filter by scopedByFactory - backend handles scoping based on ownership_hierarchy
-    const scopedFields = Object.entries(fieldsMatrix).filter(
-      ([key, config]) => 
-        config.type === 'fk' && 
-        key !== factoryFieldKey && // Don't reload the factory field itself
-        (config as any).editableInAddModal !== false
-    ) as [string, ForeignKeyFieldConfig<T>][];
-
-    const loadScopedOptions = async () => {
-      for (const [key, config] of scopedFields) {
-        setLoadingFkOptions(prev => ({ ...prev, [key]: true }));
-        try {
-          // Determine endpoint: use apiEndpoint if provided (non-empty), otherwise construct from pluralName or modelMetadata
-          // Empty string ('') is treated as "not set" and triggers fallback logic
-          let endpoint = (config.apiEndpoint && config.apiEndpoint.trim() !== '') ? config.apiEndpoint : '';
-          if (!endpoint && config.pluralName) {
-            endpoint = `/api/${config.pluralName}`;
-          } else if (!endpoint) {
-            // Use modelMetadata for endpoint detection (SSOT)
-            endpoint = getModelEndpoint(key);
-            if (!endpoint || endpoint.trim() === '') {
-              // Skip loading if modelMetadata returns empty (model has no API endpoint)
-              console.warn(`[AddRecordModal] Skipping scoped FK options for ${key}: no API endpoint in modelMetadata`);
-              setFkOptions(prev => ({ ...prev, [key]: [] }));
-              setLoadingFkOptions(prev => ({ ...prev, [key]: false }));
-              continue;
-            }
-            // Fallback removed - if modelMetadata fails, skip loading
-          }
-          
-          // Skip loading options if endpoint is empty (model has no API endpoint)
-          if (!endpoint || endpoint.trim() === '') {
-            console.warn(`[AddRecordModal] Skipping scoped FK options for ${key}: no API endpoint available`);
-            setFkOptions(prev => ({ ...prev, [key]: [] }));
-            setLoadingFkOptions(prev => ({ ...prev, [key]: false }));
-            continue;
-          }
-          
-          const options = await fetchAllOptions(endpoint, {
-            factory_ids: factoryId,
-          });
-          setFkOptions(prev => ({ ...prev, [key]: options }));
-        } catch (error) {
-          console.error(`Failed to load scoped FK options for ${key}:`, error);
-          setFkOptions(prev => ({ ...prev, [key]: [] }));
-        } finally {
-          setLoadingFkOptions(prev => ({ ...prev, [key]: false }));
-        }
-      }
-    };
-
-    loadScopedOptions();
-  }, [formData, open, fieldsMatrix]);
-
-  // Get addable fields (editableInAddModal: true, or default true for non-system fields)
-  const addableFields = sortFieldsByAddOrder(
+  // Get editable fields (excluding hierarchy fields and system fields)
+  const editableFields = sortFieldsByAddOrder(
     Object.entries(fieldsMatrix).filter(([key, config]) => {
+      // Exclude hierarchy fields (handled separately)
+      const hierarchyFields = parentHierarchy.map(level => level.field);
+      if (hierarchyFields.includes(key)) return false;
+      
       // System fields are excluded by default
       if (SYSTEM_FIELDS.includes(key)) {
-        return (config as any).editableInAddModal === true; // Only include if explicitly set to true
+        return (config as any).editableInAddModal === true;
       }
+      
       // For non-system fields: include if editableInAddModal is true or undefined (default true)
       return (config as any).editableInAddModal !== false;
     })
@@ -317,9 +416,22 @@ export function AddRecordModal<T extends Record<string, any>>({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Validate all hierarchy levels selected
+    const missingLevels: string[] = [];
+    hierarchyState.forEach((state, index) => {
+      if (!state.selectedValue) {
+        missingLevels.push(parentHierarchy[index].label);
+      }
+    });
+
+    if (missingLevels.length > 0) {
+      toastMessages.validationFailed('Missing fields', `Please select: ${missingLevels.join(', ')}`);
+      return;
+    }
+
     // Validate required fields
     const missingFields: string[] = [];
-    addableFields.forEach(([key, config]) => {
+    editableFields.forEach(([key, config]) => {
       const required = (config as any).required;
       if (required && (formData[key as keyof T] === undefined || formData[key as keyof T] === null || formData[key as keyof T] === '')) {
         missingFields.push(config.header || key);
@@ -334,15 +446,17 @@ export function AddRecordModal<T extends Record<string, any>>({
     setIsSubmitting(true);
 
     try {
-      // Build create payload
+      // Build create payload with hierarchy fields
       const payload: Record<string, any> = {};
       
-      addableFields.forEach(([key, config]) => {
+      hierarchyState.forEach(state => {
+        payload[state.field] = state.selectedValue;
+      });
+      
+      editableFields.forEach(([key, config]) => {
         const value = formData[key as keyof T];
         
         if (config.type === 'fk') {
-          // FK fields: extract ID from object or use value directly
-          // Ensure it's a string UUID, not an object
           if (value === null || value === undefined || value === '') {
             payload[key] = null;
           } else if (typeof value === 'object' && (value as any)?.id) {
@@ -351,13 +465,10 @@ export function AddRecordModal<T extends Record<string, any>>({
             payload[key] = String(value);
           }
         } else if (config.type === 'date') {
-          // Date fields: format as YYYY-MM-DD
           payload[key] = value ? format(value as Date, 'yyyy-MM-dd') : null;
         } else if (config.type === 'time') {
-          // Time fields: ensure format HH:MM:SS
           payload[key] = value ? `${value}:00` : null;
         } else if (config.type === 'tag') {
-          // Tag fields: send as _names array
           payload[`${key}_names`] = value || [];
         } else {
           payload[key] = value;
@@ -374,14 +485,13 @@ export function AddRecordModal<T extends Record<string, any>>({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.error('[AddRecordModal] API Error:', {
+        console.error('[AddRecordWithSelectModal] API Error:', {
           status: response.status,
           statusText: response.statusText,
           errorData,
           payload,
         });
         
-        // Extract validation errors from DRF response
         let errorMessage = 'Failed to create record';
         if (errorData && typeof errorData === 'object') {
           if (errorData.detail) {
@@ -389,7 +499,6 @@ export function AddRecordModal<T extends Record<string, any>>({
           } else if (Array.isArray(errorData.non_field_errors)) {
             errorMessage = errorData.non_field_errors.join(', ');
           } else {
-            // Format field-specific errors
             const fieldErrors: string[] = [];
             Object.keys(errorData).forEach(field => {
               const errors = errorData[field];
@@ -519,8 +628,6 @@ export function AddRecordModal<T extends Record<string, any>>({
         const selectOptions = typeof selectConfig.options === 'function' 
           ? selectConfig.options({} as T) 
           : selectConfig.options || [];
-        // Radix UI Select neumožňuje prázdny string ako hodnotu
-        // Ak value nie je v options, použijeme undefined (zobrazí placeholder)
         const selectValue = value != null && selectOptions.some(opt => String(opt.value) === String(value))
           ? String(value)
           : undefined;
@@ -559,12 +666,6 @@ export function AddRecordModal<T extends Record<string, any>>({
         const isLoading = loadingFkOptions[key];
         const currentValue = value ? String(value) : '';
         const required = (config as any).required || false;
-        const isFactoryField = fkConfig.useAllAccessible === true;
-        
-        // Pre factory field: ak je len 1 factory vybratá, automaticky nastaviť hodnotu
-        const autoSetValue = isFactoryField && selectedFactories.length === 1 
-          ? selectedFactories[0] 
-          : null;
         
         return (
           <ConditionalFKSelect
@@ -575,7 +676,6 @@ export function AddRecordModal<T extends Record<string, any>>({
             disabled={isSubmitting}
             placeholder={(config as any).placeholder || `Select ${config.header}`}
             required={required}
-            autoSetValue={autoSetValue}
           />
         );
 
@@ -585,6 +685,118 @@ export function AddRecordModal<T extends Record<string, any>>({
         );
     }
   };
+
+  // Render hierarchical selects
+  const renderHierarchySelects = () => {
+    if (hierarchyState.length === 0) return null;
+
+    // Check if ALL levels have exactly 1 option (all readonly)
+    const allReadonly = hierarchyState.every(s => s.options.length === 1);
+
+    return hierarchyState.map((state, index) => {
+      const level = parentHierarchy[index];
+      const isDisabled = index > 0 && !hierarchyState[index - 1].selectedValue;
+
+      // If all levels have 1 option, show readonly
+      if (allReadonly && state.options.length === 1) {
+        return (
+          <div key={state.field} className="space-y-2">
+            <label className="text-sm font-medium">
+              {level.label}
+              <span className="text-destructive ml-1">*</span>
+            </label>
+            <Input
+              value={state.options[0].label}
+              disabled
+              className="bg-muted"
+            />
+          </div>
+        );
+      }
+
+      // Level 0 empty state
+      if (index === 0 && state.options.length === 0) {
+        return (
+          <EmptyState
+            key={state.field}
+            message={level.requiredMessage || `Create ${level.label.toLowerCase()} first`}
+            icon="AlertCircle"
+          />
+        );
+      }
+
+      // Single option at this level (readonly)
+      if (state.options.length === 1) {
+        return (
+          <div key={state.field} className="space-y-2">
+            <label className="text-sm font-medium">
+              {level.label}
+              <span className="text-destructive ml-1">*</span>
+            </label>
+            <Input
+              value={state.options[0].label}
+              disabled
+              className="bg-muted"
+            />
+          </div>
+        );
+      }
+
+      // Dropdown selector (2+ options or waiting for parent)
+      return (
+        <div key={state.field} className="space-y-2">
+          <label className="text-sm font-medium">
+            {level.label}
+            <span className="text-destructive ml-1">*</span>
+          </label>
+          <Select
+            value={state.selectedValue || undefined}
+            onValueChange={(val) => handleHierarchyChange(index, val)}
+            disabled={isDisabled || isSubmitting || state.loading}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={state.loading ? 'Loading...' : `Select ${level.label}`} />
+            </SelectTrigger>
+            <SelectContent>
+              {state.options.map((opt) => (
+                <SelectItem key={opt.id} value={opt.id}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      );
+    });
+  };
+
+  // If 0 parents at root level, show empty state modal
+  if (open && hierarchyState.length > 0 && hierarchyState[0].options.length === 0 && !hierarchyState[0].loading) {
+    return (
+      <FormModal
+        open={open}
+        title={
+          <>
+            Add New
+            <span style={{ marginLeft: '100px' }} className="text-3xl font-extrabold tracking-wide opacity-90">{singularName}</span>
+          </>
+        }
+        onClose={onClose}
+        onSubmit={(e) => e.preventDefault()}
+        submitText="Create"
+        hideSubmit
+        size="lg"
+      >
+        <EmptyState
+          message={parentHierarchy[0]?.requiredMessage || `Create ${parentHierarchy[0]?.label.toLowerCase()} first`}
+          icon="AlertCircle"
+        />
+      </FormModal>
+    );
+  }
+
+  // Check if all hierarchy levels are selected (needed to show other fields)
+  const allHierarchySelected = hierarchyState.length > 0 && hierarchyState.every(state => state.selectedValue !== null);
 
   return (
     <FormModal
@@ -601,7 +813,11 @@ export function AddRecordModal<T extends Record<string, any>>({
       size="lg"
     >
       <div className="space-y-4">
-        {addableFields.map(([key, config]) => {
+        {/* Hierarchical parent selection */}
+        {renderHierarchySelects()}
+        
+        {/* Editable fields (only if all hierarchy levels selected) */}
+        {allHierarchySelected && editableFields.map(([key, config]) => {
           const fieldValue = formData[key as keyof T];
           
           return (
@@ -618,4 +834,3 @@ export function AddRecordModal<T extends Record<string, any>>({
     </FormModal>
   );
 }
-

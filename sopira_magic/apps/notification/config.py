@@ -57,12 +57,12 @@ _RAW_NOTIFICATION_CONFIG: Dict = {
         "signup_notification_admin": {
             "enabled": True,
             "channel": "email",
-            "template_source": "database",  # Simple text v DB
-            "template_name": "signup_notification_admin",
-            "scope_aware": True,  # Len admini v scope nového usera
+            "template_source": "file",  # Pekný HTML template
+            "template_name": "signup_admin_notification.html",
+            "scope_aware": False,  # SA dostane notifikáciu o všetkých nových useroch
             "default_recipients": ["admin"],
-            "subject_template": "👤 New User Signup - {username}",
-            "variables": ["username", "email", "role", "timestamp", "ip_address"],
+            "subject_template": "🆕 New User Registration - {username}",
+            "variables": ["username", "email", "first_name", "last_name", "role", "ip_address", "user_agent"],
         },
         
         # Signup Welcome User - Nový user dostane welcome email

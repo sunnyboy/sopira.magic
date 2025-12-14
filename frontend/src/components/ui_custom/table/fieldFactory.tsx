@@ -30,14 +30,20 @@ export interface BaseFieldConfig<TData = any> {
   maxSize?: number;
   /** Column order (for sorting in table, lower = more left) */
   order?: number;
-  /** Is field editable */
+  /** Is field editable (legacy, maps to editableInline) */
   editable?: boolean;
+  /** Is field editable inline (double-click) */
+  editableInline?: boolean;
   /** Is column sortable */
   sortable?: boolean;
   /** Is column filterable */
   filterable?: boolean;
   /** Is field required (for validation) */
   required?: boolean;
+  /** Is field editable in Add modal */
+  editableInAddModal?: boolean;
+  /** Is field editable in Edit modal */
+  editableInEditModal?: boolean;
 }
 
 /**
@@ -609,7 +615,7 @@ export function createTableColumn<TData extends Record<string, any>>(
     }
 
     if (config.type === 'tag') {
-      fieldConfig.transformForApi = (tags: string[]) => ({ tags_names: tags });
+      fieldConfig.transformForApi = (tags: string[]) => ({ tags: tags });
     }
 
     const field = TI.useOptimisticField(fieldConfig);

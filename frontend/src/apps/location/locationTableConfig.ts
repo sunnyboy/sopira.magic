@@ -39,6 +39,25 @@ export const locationTableConfig: MyTableConfig<Location> = {
   },
 
   // ============================================
+  // PARENT ENTITY SELECTION (Hierarchical 2-level)
+  // ============================================
+  parentHierarchy: [
+    {
+      field: 'company',
+      endpoint: 'companies',
+      label: 'Company',
+      requiredMessage: 'Create company first'
+    },
+    {
+      field: 'factory',
+      endpoint: 'factories',
+      label: 'Factory',
+      parentField: 'company',  // Filter factories by selected company
+      requiredMessage: 'Create factory first'
+    }
+  ],
+
+  // ============================================
   // FIELDS MATRIX - Deklaratívna konfigurácia polí
   // ============================================
   fieldsMatrix: {
@@ -95,6 +114,7 @@ export const locationTableConfig: MyTableConfig<Location> = {
       filterType: 'text',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: true,  // Show in Add modal
       sortable: true,
       resizable: true,
       required: true,
@@ -110,6 +130,7 @@ export const locationTableConfig: MyTableConfig<Location> = {
       filterType: 'text',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: true,  // Show in Add modal
       sortable: true,
       resizable: true,
       required: true,

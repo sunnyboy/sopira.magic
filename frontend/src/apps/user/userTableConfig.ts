@@ -133,6 +133,8 @@ export const userTableConfigBase: Omit<MyTableConfig<UserRow>, 'data'> = {
       sortable: true,
       filterable: true,
       order: 50,
+      // SA user (sopira) cannot be deactivated - protection against accidental logout
+      editable: (row: UserRow) => row.username !== 'sopira',
     },
     {
       key: 'is_staff',

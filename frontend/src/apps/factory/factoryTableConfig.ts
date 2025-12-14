@@ -40,6 +40,18 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
   },
 
   // ============================================
+  // PARENT ENTITY SELECTION (Hierarchical)
+  // ============================================
+  parentHierarchy: [
+    {
+      field: 'company',
+      endpoint: 'companies',
+      label: 'Company',
+      requiredMessage: 'Create company first to add factories'
+    }
+  ],
+
+  // ============================================
   // FIELDS MATRIX - Deklaratívna konfigurácia polí
   // ============================================
   fieldsMatrix: {
@@ -83,6 +95,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
       filterType: 'text',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false, // Not needed for factory creation
       sortable: true,
       resizable: true,
     },
@@ -97,6 +110,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
       filterType: 'text',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: true,  // Show in Add modal
       sortable: true,
       resizable: true,
       required: true,
@@ -112,6 +126,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
       filterType: 'text',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: true,  // Show in Add modal
       sortable: true,
       resizable: true,
       required: true,
@@ -161,6 +176,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
       filterType: 'boolean',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false, // Not needed for factory creation
       sortable: true,
       resizable: true,
       trueLabel: 'Active',
@@ -181,6 +197,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
       filterType: 'boolean',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false, // Not needed for factory creation
       sortable: true,
       resizable: true,
       trueLabel: 'Visible',
@@ -199,6 +216,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
       filterType: 'text',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false, // Not needed for factory creation
       sortable: false,
       resizable: true,
     },
@@ -212,6 +230,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
       isInFilterPanel: false,
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false, // Not needed for factory creation
       sortable: false,
       resizable: true,
       multiline: true,
@@ -226,6 +245,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
       isInFilterPanel: false,
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false, // Not needed for factory creation
       sortable: false,
       resizable: true,
       multiline: true,
@@ -241,6 +261,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
       filterType: 'multiselect',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false, // Handled by AddRecordWithSelectModal
       required: true,
     },
     users: {
@@ -253,6 +274,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
       isInFilterPanel: false,
       editableInEditModal: false,
       editableInline: false,
+      editableInAddModal: false, // Not editable (derived from company)
       sortable: false,
       resizable: true,
     },
@@ -269,6 +291,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
       filterType: 'text',
       editableInEditModal: true,
       editableInline: true,
+      editableInAddModal: false, // Not needed for factory creation
       sortable: true,
       resizable: true,
     },
@@ -354,7 +377,7 @@ export const factoryTableConfig: MyTableConfig<Factory> = {
   },
 
   emptyState: {
-    text: 'No factories found. Please select some Factory in Dashboard or create one.',
+    text: 'No factories yet. Create your first factory to access production features. Click +Add above to get started.',
   },
 
   // ============================================

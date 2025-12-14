@@ -183,6 +183,37 @@ export function useOptimisticField<T = any>(
       // Backend returns full updated record (including computed fields like *_display_label)
       const responseData = await res.json();
       
+      // Universal _meta parser (ConfigDriven & SSOT)
+      // Backend can send warnings/info/errors in _meta object
+      let hasWarningsOrErrors = false;
+      
+      if (responseData._meta) {
+        const { toastMessages } = await import('@/utils/toastMessages');
+        
+        // Display warnings
+        if (responseData._meta.warnings && Array.isArray(responseData._meta.warnings) && responseData._meta.warnings.length > 0) {
+          hasWarningsOrErrors = true;
+          responseData._meta.warnings.forEach((msg: string) => {
+            toastMessages.displayMessage('warning', msg);
+          });
+        }
+        
+        // Display info messages
+        if (responseData._meta.info && Array.isArray(responseData._meta.info)) {
+          responseData._meta.info.forEach((msg: string) => {
+            toastMessages.displayMessage('info', msg);
+          });
+        }
+        
+        // Display errors
+        if (responseData._meta.errors && Array.isArray(responseData._meta.errors) && responseData._meta.errors.length > 0) {
+          hasWarningsOrErrors = true;
+          responseData._meta.errors.forEach((msg: string) => {
+            toastMessages.displayMessage('error', msg);
+          });
+        }
+      }
+      
       // Update entire record in parent state (not just single field)
       // This ensures computed fields (e.g., factory_display_label) are updated
       if (config.onFullRecordUpdate) {
@@ -194,8 +225,9 @@ export function useOptimisticField<T = any>(
       
       setIsSaving(false);
       
-      // Call success callback (e.g., show toast)
-      if (onSuccess) {
+      // Call success callback ONLY if there are no warnings/errors
+      // If backend sent warnings/errors, those messages replace "Changes saved"
+      if (onSuccess && !hasWarningsOrErrors) {
         onSuccess();
       }
       

@@ -11,6 +11,7 @@ import { PageFooter } from '@/components/PageFooter';
 import { Button } from '@/components/ui_custom/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui_custom/card';
 import { Factory, BarChart3, Users, Settings } from 'lucide-react';
+import { DBWatchdog } from '@/components/DBWatchdog';
 
 /**
  * Dashboard Page - Placeholder
@@ -37,6 +38,11 @@ export function DashboardPage() {
         </div>
 
         <div className="p-6">
+          {/* DB Watchdog Widget (DEV only) */}
+          <div className="mb-6">
+            <DBWatchdog />
+          </div>
+
           {/* Quick Access Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* Factories Card */}

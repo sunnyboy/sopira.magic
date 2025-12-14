@@ -1,90 +1,105 @@
 //*........................................................
-//*       www/thermal_eye_ui/src/utils/toastMessages.ts
-//*       Centralized toast messages for all tables
+//*       frontend/src/utils/toastMessages.ts
+//*       Toast Messages Engine - ConfigDriven & SSOT
+//*       Univerzálny engine pre zobrazovanie toast notifikácií
 //*........................................................
 
-import { toast } from 'sonner';
-
 /**
- * Duration constants for toast messages
+ * Toast Messages Engine - ConfigDriven & SSOT
+ * 
+ * Univerzálny engine pre zobrazovanie toast notifikácií.
+ * Všetky messages sú definované v toastConfig.ts (SSOT).
+ * 
+ * Usage:
+ * - Predefined: toastMessages.recordCreated()
+ * - Custom: toastMessages.displayMessage('warning', 'Custom text')
  */
-export const durationS = 3000; // Short duration
-export const durationM = 4000; // Medium duration (default)
-export const durationL = 5000; // Long duration (for errors)
+
+import { toast } from 'sonner';
+import { TOAST_CONFIG, DURATION_MAP, type ToastType, type DurationType } from './toastConfig';
 
 /**
- * Standard toast messages used across all tables
- * All UI messages in English
+ * Create typed toast function from config
+ */
+function createToastFunction(configKey: string) {
+  const config = TOAST_CONFIG[configKey];
+  if (!config) {
+    console.warn(`[toastMessages] Unknown config key: ${configKey}`);
+    return () => {};
+  }
+
+  const duration = DURATION_MAP[config.duration];
+
+  // If text is a function, return a function that accepts arguments
+  if (typeof config.text === 'function') {
+    return (...args: any[]) => {
+      const message = (config.text as (...args: any[]) => string)(...args);
+      toast[config.type](message, { duration });
+    };
+  }
+
+  // If text is a string, return a simple function
+  return () => {
+    toast[config.type](config.text as string, { duration });
+  };
+}
+
+/**
+ * ConfigDriven toast messages object
+ * All functions are dynamically generated from TOAST_CONFIG
  */
 export const toastMessages = {
   // Success messages
-  changesSaved: (duration = durationM) => toast.success('Changes saved', { duration }),
-  recordCreated: (duration = durationM) => toast.success('Record created', { duration }),
-  recordDeleted: (count: number = 1, duration = durationM) => 
-    toast.success(`${count} record${count > 1 ? 's' : ''} deleted`, { duration }),
-  recordsExported: (count: number, format: string, duration = durationM) => 
-    toast.success(`${count} record${count > 1 ? 's' : ''} exported as ${format.toUpperCase()}`, { duration }),
-  filterSaved: (name: string, duration = durationM) => 
-    toast.success(`Filter "${name}" saved`, { duration }),
-  filterLoaded: (name: string, duration = durationM) => 
-    toast.success(`Filter "${name}" loaded`, { duration }),
+  changesSaved: createToastFunction('changesSaved'),
+  recordCreated: createToastFunction('recordCreated'),
+  recordDeleted: createToastFunction('recordDeleted') as (count: number) => void,
+  recordsExported: createToastFunction('recordsExported') as (count: number, format: string) => void,
+  filterSaved: createToastFunction('filterSaved') as (name: string) => void,
+  filterLoaded: createToastFunction('filterLoaded') as (name: string) => void,
   
   // Preset operations
-  presetSaved: (name: string, duration = durationM) => 
-    toast.success(`Preset "${name}" saved`, { duration }),
-  presetLoaded: (name: string, duration = durationM) => 
-    toast.success(`Preset "${name}" loaded`, { duration }),
-  presetDeleted: (duration = durationM) => 
-    toast.success('Preset deleted', { duration }),
+  presetSaved: createToastFunction('presetSaved') as (name: string) => void,
+  presetLoaded: createToastFunction('presetLoaded') as (name: string) => void,
+  presetDeleted: createToastFunction('presetDeleted'),
   
   // Clipboard
-  copiedToClipboard: (duration = durationS) => 
-    toast.success('Copied to clipboard', { duration }),
+  copiedToClipboard: createToastFunction('copiedToClipboard'),
   
   // Error messages
-  saveFailed: (details?: string, duration = durationL) => 
-    toast.error(`Save failed${details ? `: ${details}` : ''}`, { duration }),
-  deleteFailed: (details?: string, duration = durationL) => 
-    toast.error(`Delete failed${details ? `: ${details}` : ''}`, { duration }),
-  loadFailed: (details?: string, duration = durationL) => 
-    toast.error(`Load failed${details ? `: ${details}` : ''}`, { duration }),
-  exportFailed: (details?: string, duration = durationL) => 
-    toast.error(`Export failed${details ? `: ${details}` : ''}`, { duration }),
-  validationFailed: (field: string, reason: string, duration = durationL) => 
-    toast.error(`${field}: ${reason}`, { duration }),
+  saveFailed: createToastFunction('saveFailed') as (details?: string) => void,
+  deleteFailed: createToastFunction('deleteFailed') as (details?: string) => void,
+  loadFailed: createToastFunction('loadFailed') as (details?: string) => void,
+  exportFailed: createToastFunction('exportFailed') as (details?: string) => void,
+  validationFailed: createToastFunction('validationFailed') as (field: string, reason: string) => void,
   
   // Preset error messages
-  presetSaveFailed: (details?: string, duration = durationL) => 
-    toast.error(`Failed to save preset${details ? `: ${details}` : ''}`, { duration }),
-  presetLoadFailed: (details?: string, duration = durationL) => 
-    toast.error(`Failed to load preset${details ? `: ${details}` : ''}`, { duration }),
-  presetDeleteFailed: (duration = durationL) => 
-    toast.error('Failed to delete preset', { duration }),
+  presetSaveFailed: createToastFunction('presetSaveFailed') as (details?: string) => void,
+  presetLoadFailed: createToastFunction('presetLoadFailed') as (details?: string) => void,
+  presetDeleteFailed: createToastFunction('presetDeleteFailed'),
   
   // Warning messages
-  noSelection: (duration = durationS) => 
-    toast.warning('No records selected', { duration }),
-  unsavedChanges: (duration = durationS) => 
-    toast.warning('You have unsaved changes', { duration }),
+  noSelection: createToastFunction('noSelection'),
+  unsavedChanges: createToastFunction('unsavedChanges'),
   
   // Info messages
-  processing: (action: string, duration = durationS) => 
-    toast.info(`${action}...`, { duration }),
-  cancelled: (action: string, duration = durationS) => 
-    toast.info(`${action} cancelled`, { duration }),
-  showingSelectedRecords: (count: number, duration = durationS) => 
-    toast.info(`Showing ${count} selected record${count > 1 ? 's' : ''}`, { duration }),
-  showingAllRecords: (duration = durationS) => 
-    toast.info('Showing all records', { duration }),
+  processing: createToastFunction('processing') as (action: string) => void,
+  cancelled: createToastFunction('cancelled') as (action: string) => void,
+  showingSelectedRecords: createToastFunction('showingSelectedRecords') as (count: number) => void,
+  showingAllRecords: createToastFunction('showingAllRecords'),
+
+  /**
+   * Universal function for displaying custom messages (e.g., from backend)
+   * ConfigDriven - accepts any type and message
+   */
+  displayMessage: (type: ToastType, message: string, customDuration?: DurationType) => {
+    const duration = customDuration ? DURATION_MAP[customDuration] : DURATION_MAP[
+      type === 'error' ? 'long' : (type === 'info' ? 'short' : 'medium')
+    ];
+    toast[type](message, { duration });
+  },
 };
 
-/**
- * Shorthand for common toast patterns
- * @deprecated Use toastMessages functions instead for consistency
- */
-export const toasts = {
-  success: (message: string, duration = durationM) => toast.success(message, { duration }),
-  error: (message: string, duration = durationL) => toast.error(message, { duration }),
-  warning: (message: string, duration = durationS) => toast.warning(message, { duration }),
-  info: (message: string, duration = durationS) => toast.info(message, { duration }),
-};
+// Re-export duration constants for backward compatibility
+export const durationS = DURATION_MAP.short;
+export const durationM = DURATION_MAP.medium;
+export const durationL = DURATION_MAP.long;

@@ -1,147 +1,104 @@
 #..............................................................
 #   apps/scoping/middleware.py
-#   Middleware pre automatické aplikovanie scoping
+#   ViewSet mixin for automatic scoping (CLEAN REWRITE)
 #..............................................................
 
 """
-Middleware pre automatické aplikovanie scoping pravidiel.
+ViewSet mixin for automatic scoping.
 
-Aplikuje scoping pravidlá automaticky na všetky relevantné requesty.
-Centralizuje scoping logiku a znižuje šancu na omylné vynechanie filtrovania.
+Provides ScopingViewSetMixin that automatically applies scoping rules
+to ViewSet querysets using the new clean scoping engine.
 """
 
 import logging
-from typing import Callable
-from django.conf import settings
-from django.http import HttpRequest, HttpResponse
+from typing import Any
 
 from .engine import ScopingEngine
-from .fallback import apply_with_fallback
 
 logger = logging.getLogger(__name__)
-
-# Konfigurácia z settings
-MIDDLEWARE_ENABLED = getattr(settings, 'SCOPING_MIDDLEWARE_ENABLED', False)
-MIDDLEWARE_TABLES = getattr(settings, 'SCOPING_MIDDLEWARE_TABLES', [])
-
-
-class ScopingMiddleware:
-    """
-    Django middleware pre automatické aplikovanie scoping.
-    
-    Automaticky aplikuje scoping rules na API requesty pre konfigurované tabuľky.
-    """
-    
-    def __init__(self, get_response: Callable):
-        self.get_response = get_response
-    
-    def __call__(self, request: HttpRequest) -> HttpResponse:
-        """
-        Process request and apply scoping if needed.
-        
-        Args:
-            request: Django HttpRequest
-            
-        Returns:
-            HttpResponse
-        """
-        # Ak middleware nie je povolený, preskoč
-        if not MIDDLEWARE_ENABLED:
-            return self.get_response(request)
-        
-        # Spracuj request
-        response = self.get_response(request)
-        
-        # Middleware aplikuje scoping na response, nie na request
-        # Pre automatické scoping v ViewSets, použite ScopingEngine.apply_rules priamo
-        # Tento middleware je skôr pre monitoring a logging
-        
-        return response
-    
-    def process_view(self, request: HttpRequest, view_func: Callable, view_args, view_kwargs):
-        """
-        Process view before it's called.
-        
-        Môže byť použitý pre automatické aplikovanie scoping na viewset querysets.
-        """
-        # Poznámka: Pre automatické scoping v ViewSets je lepšie použiť
-        # ScopingEngine.apply_rules priamo v get_queryset metóde
-        # Tento middleware je skôr pre monitoring
-        
-        return None
 
 
 class ScopingViewSetMixin:
     """
-    Mixin pre ViewSet pre automatické aplikovanie scoping.
+    Mixin for ViewSet to automatically apply scoping rules.
     
-    Použitie:
+    Usage:
         class MyViewSet(ScopingViewSetMixin, ModelViewSet):
-            queryset = Location.objects.all()
-            # Scoping je automaticky aplikovaný v get_queryset
+            queryset = Company.objects.all()
+            # Scoping is automatically applied in get_queryset
+    
+    The mixin expects:
+        - self._view_name: table name (e.g., 'companies')
+        - self._view_config: ViewConfig dict from VIEWS_MATRIX
+        - self.request.user: scope owner (authenticated user)
     """
     
     def get_queryset(self):
         """
-        Override get_queryset pre automatické aplikovanie scoping.
+        Override get_queryset to automatically apply scoping.
         """
+        logger.warning(f"[ScopingViewSetMixin] ========== get_queryset() CALLED ==========")
         queryset = super().get_queryset()
+        logger.warning(f"[ScopingViewSetMixin] Base queryset count: {queryset.count()}")
         
-        # Získaj table_name z viewset
+        # Get table name
         table_name = getattr(self, '_view_name', None)
         if not table_name:
-            # Skús získať z queryset model
+            # Fallback: try to get from queryset model
             if hasattr(queryset, 'model'):
-                model_name = queryset.model.__name__.lower()
-                # Mapuj model name na table name
-                table_name = model_name
+                table_name = queryset.model.__name__.lower()
         
         if not table_name:
             logger.warning(
-                f"[ScopingMiddleware] Could not determine table_name for {self.__class__.__name__}, "
+                f"[ScopingViewSetMixin] Could not determine table_name for {self.__class__.__name__}, "
                 "scoping not applied"
             )
             return queryset
         
-        # Skontroluj, či má byť scoping aplikovaný pre túto tabuľku
-        if MIDDLEWARE_TABLES and table_name not in MIDDLEWARE_TABLES:
-            return queryset
-        
-        # Získaj config (musí byť poskytnutý cez VIEWS_MATRIX alebo viewset)
+        # Get config
         config = getattr(self, '_view_config', None)
         if not config:
-            # Skús získať z VIEWS_MATRIX
+            # Try to get from VIEWS_MATRIX
             try:
                 from sopira_magic.apps.api.view_configs import VIEWS_MATRIX
-                config = VIEWS_MATRIX.get(table_name)
+                config = VIEWS_MATRIX.get(table_name, {})
             except ImportError:
                 logger.warning(
-                    f"[ScopingMiddleware] Could not import VIEWS_MATRIX, "
-                    "scoping not applied"
+                    f"[ScopingViewSetMixin] Could not import VIEWS_MATRIX, "
+                    "scoping not applied for {table_name}"
                 )
                 return queryset
         
-        if not config:
-            logger.warning(
-                f"[ScopingMiddleware] No config found for {table_name}, "
-                "scoping not applied"
-            )
-            return queryset
-        
-        # Aplikuj scoping s fallback
+        # Get scope owner (user)
         scope_owner = getattr(self.request, 'user', None)
-        if not scope_owner:
-            logger.warning(
-                f"[ScopingMiddleware] No user in request, scoping not applied"
+        if not scope_owner or not scope_owner.is_authenticated:
+            logger.debug(
+                f"[ScopingViewSetMixin] No authenticated user in request, "
+                f"returning empty queryset for {table_name}"
             )
-            return queryset
+            return queryset.none()
         
-        return apply_with_fallback(
-            queryset,
-            scope_owner,
-            table_name,
-            config,
-            request=self.request
-        )
-
+        # Apply scoping using new clean engine
+        try:
+            filtered_queryset = ScopingEngine.apply(
+                queryset,
+                scope_owner,
+                table_name,
+                config
+            )
+            
+            logger.debug(
+                f"[ScopingViewSetMixin] Scoping applied for {table_name}: "
+                f"{queryset.count()} → {filtered_queryset.count()} records"
+            )
+            
+            return filtered_queryset
+        
+        except Exception as e:
+            logger.error(
+                f"[ScopingViewSetMixin] Error applying scoping for {table_name}: {e}",
+                exc_info=True
+            )
+            # On error, return empty queryset for safety
+            return queryset.none()
 

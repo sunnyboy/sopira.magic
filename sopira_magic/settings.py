@@ -135,7 +135,6 @@ INSTALLED_APPS = [
     "sopira_magic.apps.m_tag",
     "sopira_magic.apps.scheduler",
     "sopira_magic.apps.fk_options_cache",
-    "sopira_magic.apps.state",
     "sopira_magic.apps.mystate",  # New state management module
     "sopira_magic.apps.internationalization",
     "sopira_magic.apps.impex",
@@ -165,6 +164,9 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     # X-Frame-Options disabled for local dev PDF viewing in iframe
     # "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    
+    # 🔍 TEMPORARY: DB Watchdog - sleduje DB query count per request
+    "sopira_magic.middleware_db_debug.DatabaseDebugMiddleware",
 ]
 
 ROOT_URLCONF = "sopira_magic.urls"
@@ -221,7 +223,8 @@ for db_name in DATABASES:
     if 'CONN_MAX_AGE' not in DATABASES[db_name] and 'conn_max_age' in DATABASES[db_name]:
         DATABASES[db_name]['CONN_MAX_AGE'] = DATABASES[db_name]['conn_max_age']
     elif 'CONN_MAX_AGE' not in DATABASES[db_name]:
-        DATABASES[db_name]['CONN_MAX_AGE'] = 600
+        # 🔧 ZNÍŽENÉ z 600 na 30 sekúnd - prevents connection slot exhaustion
+        DATABASES[db_name]['CONN_MAX_AGE'] = 30
 
 # Database router
 DATABASE_ROUTERS = ['sopira_magic.db_router.DatabaseRouter']

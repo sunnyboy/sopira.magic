@@ -7,6 +7,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { API_BASE } from '@/config/api';
 import { getMutatingHeaders } from '@/security/csrf';
+import { clearAccessRightsCache } from '@/hooks/useAccessRights';
 
 interface User {
   id: string;  // UUID
@@ -148,6 +149,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (data.success) {
           setUser(data.user);
           setCsrfToken(data.csrf_token || token);
+          clearAccessRightsCache(); // Clear cache on successful login
           return true;
         }
       }
@@ -166,6 +168,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           if (retryData.success) {
             setUser(retryData.user);
             setCsrfToken(retryData.csrf_token || '');
+            clearAccessRightsCache(); // Clear cache on successful retry login
             return true;
           }
         }
@@ -264,6 +267,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } finally {
       setUser(null);
       setCsrfToken('');
+      clearAccessRightsCache(); // Clear cache on logout
     }
   };
 

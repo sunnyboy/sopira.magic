@@ -578,6 +578,32 @@ export interface MyTableConfig<T extends Record<string, any> = any> {
   emptyState?: EmptyStateConfig;
 
   // ============================================
+  // PARENT ENTITY SELECTION (for child tables like factories)
+  // ============================================
+  /** Hierarchical parent selection (ConfigDriven multi-level support) */
+  parentHierarchy?: Array<{
+    field: string;              // 'company', 'factory', 'location'
+    endpoint: string;           // 'companies', 'factories', 'locations'
+    label: string;              // 'Company', 'Factory', 'Location'
+    parentField?: string;       // 'company' for factory, 'factory' for location (for cascade filter)
+    requiredMessage?: string;   // 'Create company first'
+  }>;
+  
+  /** Legacy single-parent support (backward compatible) */
+  /** @deprecated Use parentHierarchy instead */
+  parentField?: string;
+  /** @deprecated Use parentHierarchy instead */
+  parentEndpoint?: string;
+  /** @deprecated Use parentHierarchy instead */
+  parentOptions?: Array<{ id: string; label: string }>;
+  /** @deprecated Use parentHierarchy instead */
+  parentRequiredMessage?: string;
+  /** @deprecated Use parentHierarchy instead */
+  parentLabel?: string;
+  /** Override auto-detection - force specific add modal type */
+  customAddModal?: 'AddRecordModal' | 'AddRecordWithSelectModal';
+
+  // ============================================
   // CALLBACKS
   // ============================================
   /** Event callbacks */

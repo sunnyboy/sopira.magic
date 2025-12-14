@@ -31,7 +31,6 @@ from django.db.models import QuerySet
 from rest_framework import viewsets
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
-from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.conf import settings
 
@@ -109,6 +108,7 @@ def create_viewset(view_name: str, read_only: bool = True) -> Type[viewsets.View
         if select_related_cfg:
             qs = qs.select_related(*select_related_cfg)
         if prefetch_related_cfg:
+            logger.debug(f"[ViewFactory] Applying prefetch_related for '{view_name}': {prefetch_related_cfg}")
             qs = qs.prefetch_related(*prefetch_related_cfg)
         
         # Apply base filters (e.g., active=True)
@@ -164,76 +164,16 @@ def create_viewset(view_name: str, read_only: bool = True) -> Type[viewsets.View
         return instance
     
     def perform_update(self, serializer):
-        """Update with custom after hooks. before_update hooks are in serializer.update()."""
-        # Store serializer instance for finalize_response to access _meta
-        self._serializer_instance = serializer
-        
-        instance = serializer.save()
+        """Update with custom before/after hooks."""
+        if before_update_hook:
+            instance = before_update_hook(serializer, self.request)
+        else:
+            instance = serializer.save()
         
         if after_update_hook:
             after_update_hook(instance, self.request)
         
         return instance
-    
-    def update(self, request, *args, **kwargs):
-        """
-        Override DRF update to inject _meta into response (ConfigDriven & SSOT).
-        """
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        
-        # Build response data
-        if getattr(instance, '_prefetched_objects_cache', None):
-            instance._prefetched_objects_cache = {}
-        
-        response_data = serializer.data
-        
-        # Inject _meta from serializer (ConfigDriven & SSOT)
-        meta_warnings = getattr(serializer, '_meta_warnings', [])
-        meta_info = getattr(serializer, '_meta_info', [])
-        meta_errors = getattr(serializer, '_meta_errors', [])
-        
-        if meta_warnings or meta_info or meta_errors:
-            response_data['_meta'] = {
-                'warnings': meta_warnings,
-                'info': meta_info,
-                'errors': meta_errors,
-            }
-        
-        return Response(response_data)
-    
-    def finalize_response(self, request, response, *args, **kwargs):
-        """
-        Override to add _meta from serializer (ConfigDriven & SSOT).
-        
-        Automatically injects warnings/info/errors from serializer hooks
-        into response data as _meta object.
-        """
-        # Call parent finalize_response (use explicit base class, not super())
-        response = viewsets.ModelViewSet.finalize_response(self, request, response, *args, **kwargs)
-        
-        # Try to get serializer from _serializer_instance (set by perform_update/create)
-        serializer = getattr(self, '_serializer_instance', None)
-        
-        # Collect meta from serializer
-        if serializer:
-            meta_warnings = getattr(serializer, '_meta_warnings', [])
-            meta_info = getattr(serializer, '_meta_info', [])
-            meta_errors = getattr(serializer, '_meta_errors', [])
-            
-            # Add _meta to response if we have any messages
-            if meta_warnings or meta_info or meta_errors:
-                if isinstance(response.data, dict):
-                    response.data['_meta'] = {
-                        'warnings': meta_warnings,
-                        'info': meta_info,
-                        'errors': meta_errors,
-                    }
-        
-        return response
 
     # DEV_MODE: Skip authentication for development testing
     if DEV_MODE:
@@ -272,8 +212,6 @@ def create_viewset(view_name: str, read_only: bool = True) -> Type[viewsets.View
     if not read_only:
         attrs["perform_create"] = perform_create
         attrs["perform_update"] = perform_update
-        attrs["update"] = update  # Custom update to inject _meta
-        attrs["finalize_response"] = finalize_response  # Fallback for other actions
 
     base_class = viewsets.ReadOnlyModelViewSet if read_only else viewsets.ModelViewSet
 

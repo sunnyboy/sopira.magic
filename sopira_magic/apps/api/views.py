@@ -48,7 +48,9 @@ from sopira_magic.apps.accessrights.services import (
 )
 from sopira_magic.apps.api.view_configs import VIEWS_MATRIX
 from sopira_magic.apps.m_user.models import UserPreference
-from sopira_magic.apps.state.models import TableState
+# TEMP: TableState removed, zakomentované pre migráciu
+# from sopira_magic.apps.mystate.models import TableState
+TableState = None  # Placeholder
 from sopira_magic.apps.generator.api import (
     generator_models_view_impl,
     generator_generate_view_impl,
@@ -210,8 +212,11 @@ def generator_progress_stream_view(request, job_id: str):
 @permission_classes([IsAuthenticated])
 def accessrights_matrix_view(request):
     """
-    Read-only endpoint pre FE: vráti menu + actions pre aktuálneho usera.
+    Read-only endpoint pre FE: vráti menu + actions + dependencies pre aktuálneho usera.
     """
+    from sopira_magic.apps.accessrights.services import check_menu_dependencies
+    from sopira_magic.apps.accessrights.config import EMPTY_STATE_MESSAGES
+    
     user = request.user
 
     # Zoznam menu položiek používaných vo FE
@@ -235,11 +240,16 @@ def accessrights_matrix_view(request):
 
     # Menu viditeľnosť
     menu = {key: can_view_menu(key, user) for key in menu_keys}
+    
+    # Menu dependencies (has_companies, has_factories)
+    menu_dependencies = check_menu_dependencies(user)
 
     return Response(
         {
             "menu": menu,
             "actions": actions,
+            "menu_dependencies": menu_dependencies,
+            "empty_state_messages": EMPTY_STATE_MESSAGES,
         },
         status=status.HTTP_200_OK,
     )
@@ -263,15 +273,11 @@ def user_preferences_view(request):
                 **preference.settings,
                 **preference.preferences,
             }
-            # Ensure selected_factories is always present
-            if "selected_factories" not in response_data:
-                response_data["selected_factories"] = []
             return Response(response_data, status=status.HTTP_200_OK)
         except UserPreference.DoesNotExist:
             # Return empty preferences if none exist
             return Response(
                 {
-                    "selected_factories": [],
                     "general_settings": {},
                 },
                 status=status.HTTP_200_OK,
@@ -284,16 +290,12 @@ def user_preferences_view(request):
         preference, created = UserPreference.objects.get_or_create(user=user)
         
         # Update settings and preferences
-        # Frontend sends: selected_factories, general_settings, etc.
-        # We'll store them in preferences JSONField
-        if "selected_factories" in data:
-            preference.preferences["selected_factories"] = data["selected_factories"]
         if "general_settings" in data:
             preference.preferences["general_settings"] = data["general_settings"]
         
         # Merge any other fields into preferences
         for key, value in data.items():
-            if key not in ["selected_factories", "general_settings"]:
+            if key not in ["general_settings"]:
                 preference.preferences[key] = value
         
         preference.save()

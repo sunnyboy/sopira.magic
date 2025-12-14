@@ -82,6 +82,11 @@ Range Support:
 # 7. measurement (factory, location, carrier, driver, pot, pit?, machine? FK)
 # 8. photo, video (measurement FK)
 #
+# Count Strategies:
+#   'count': N  - Generate N total records (default, legacy)
+#   'count_per_parent': N - Generate N records PER parent (hierarchical)
+#     Example: factory with count_per_parent=5 → 5 factories per company
+#
 # FK Field Type:
 #   'field_name': {
 #       'type': 'fk',
@@ -98,7 +103,7 @@ GENERATOR_CONFIG = {
     
     'user': {
         'model': 'user.User',
-        'count': 500,
+        'count': 10,  # 10 users total
         'depends_on': [],
         'fields': {
             'username': {'type': 'dataset', 'dataset': 'username'},
@@ -116,7 +121,7 @@ GENERATOR_CONFIG = {
     
     'tag': {
         'model': 'tag.Tag',
-        'count': 500,
+        'count': 20,  # 20 tags total (will be assigned 3 per record)
         'depends_on': [],
         'fields': {
             'name': {'type': 'template', 'template': 'tag-{index:03d}'},
@@ -131,16 +136,18 @@ GENERATOR_CONFIG = {
     
     'company': {
         'model': 'company.Company',
-        'count': 500,
+        'count': 3,  # Individual mode: 3 companies total
+        'count_per_parent': 3,  # Hierarchical mode: 3 per user
         'depends_on': ['user'],  # For M2M
+        'post_create_hook': 'auto_assign_user_to_company',  # Auto-create UserCompany M2M
         'fields': {
             'code': {'type': 'template', 'template': 'C-{index:03d}'},
             'name': {'type': 'dataset', 'dataset': 'business_name'},
             'human_id': {'type': 'copy', 'from': 'code'},
             'comment': {'type': 'lorem', 'words': 10},
             'note': {'type': 'lorem', 'words': 5},
-            },
         },
+    },
     
     # =========================================================================
     # LEVEL 2: Company FK
@@ -148,7 +155,8 @@ GENERATOR_CONFIG = {
     
     'factory': {
         'model': 'factory.Factory',
-        'count': 500,
+        'count': 5,  # Individual mode: 5 factories total
+        'count_per_parent': 5,  # Hierarchical mode: 5 per company
         'depends_on': ['company'],
         'fields': {
             'code': {'type': 'template', 'template': 'F-{index:03d}'},
@@ -171,7 +179,8 @@ GENERATOR_CONFIG = {
     
     'location': {
         'model': 'location.Location',
-        'count': 500,
+        'count': 5,  # Individual mode: 5 locations total
+        'count_per_parent': 5,  # Hierarchical mode: 5 per factory
         'depends_on': ['factory'],
         'fields': {
             'code': {'type': 'template', 'template': 'L-{index:03d}'},
@@ -187,7 +196,8 @@ GENERATOR_CONFIG = {
     
     'carrier': {
         'model': 'carrier.Carrier',
-        'count': 500,
+        'count': 5,  # Individual mode
+        'count_per_parent': 5,  # Hierarchical: 5 per factory
         'depends_on': ['factory'],
         'fields': {
             'code': {'type': 'template', 'template': 'CAR-{index:03d}'},
@@ -203,7 +213,8 @@ GENERATOR_CONFIG = {
     
     'driver': {
         'model': 'driver.Driver',
-        'count': 500,
+        'count': 10,  # Individual mode
+        'count_per_parent': 10,  # Hierarchical: 10 per factory
         'depends_on': ['factory'],
         'fields': {
             'code': {'type': 'template', 'template': 'DRV-{index:03d}'},
@@ -219,7 +230,8 @@ GENERATOR_CONFIG = {
     
     'pot': {
         'model': 'pot.Pot',
-        'count': 500,
+        'count': 10,  # Individual mode
+        'count_per_parent': 10,  # Hierarchical: 10 per factory
         'depends_on': ['factory'],
         'fields': {
             'code': {'type': 'template', 'template': 'POT-{index:03d}'},
@@ -237,7 +249,8 @@ GENERATOR_CONFIG = {
     
     'pit': {
         'model': 'pit.Pit',
-        'count': 500,
+        'count': 3,  # Individual mode
+        'count_per_parent': 3,  # Hierarchical: 3 per location
         'depends_on': ['factory', 'location'],
         'fields': {
             'code': {'type': 'template', 'template': 'PIT-{index:03d}'},
@@ -261,7 +274,8 @@ GENERATOR_CONFIG = {
     
     'machine': {
         'model': 'machine.Machine',
-        'count': 500,
+        'count': 15,  # Individual mode
+        'count_per_parent': 15,  # Hierarchical: 15 per factory
         'depends_on': ['factory'],
         'fields': {
             'code': {'type': 'template', 'template': 'M-{index:03d}'},
@@ -278,7 +292,8 @@ GENERATOR_CONFIG = {
     
     'camera': {
         'model': 'camera.Camera',
-        'count': 500,
+        'count': 10,  # Individual mode
+        'count_per_parent': 10,  # Hierarchical: 10 per factory
         # Location je voliteľný FK, takže neblokuj generovanie ak lokácie nie sú
         'depends_on': ['factory'],
         'fields': {
@@ -313,9 +328,12 @@ GENERATOR_CONFIG = {
     
     'measurement': {
         'model': 'measurement.Measurement',
-        'count': 500,
+        'count': 50,  # Individual mode
+        'count_per_parent': 50,  # Hierarchical: 50 per factory
         'depends_on': ['factory', 'location', 'carrier', 'driver', 'pot', 'pit', 'machine'],
         'fields': {
+            'code': {'type': 'template', 'template': 'M{index:05d}'},  # M00001, M00002, ...
+            'name': {'type': 'template', 'template': 'Measurement {index:05d}'},  # Measurement 00001, ...
             'dump_date': {'date_range': {'start': '2024-01-01', 'end': '2024-12-31'}},
             'dump_time': {'time_range': {'start': '06:00:00', 'end': '22:00:00'}},
             'pit_number': {'type': 'template', 'template': 'P{index}'},
@@ -406,7 +424,8 @@ GENERATOR_CONFIG = {
     
     'photo': {
         'model': 'photo.Photo',
-        'count': 500,
+        'count': 1,  # Individual mode
+        'count_per_parent': 1,  # Hierarchical: 1 per measurement
         'depends_on': ['measurement'],
         'fields': {
             'photo_url': {'type': 'dataset', 'dataset': 'photo_url'},
@@ -424,7 +443,8 @@ GENERATOR_CONFIG = {
     
     'video': {
         'model': 'video.Video',
-        'count': 500,
+        'count': 1,  # Individual mode
+        'count_per_parent': 1,  # Hierarchical: 1 per measurement
         'depends_on': ['measurement'],
         'fields': {
             'video_url': {'type': 'template', 'template': 'https://videos.example.com/video_{index}.mp4'},

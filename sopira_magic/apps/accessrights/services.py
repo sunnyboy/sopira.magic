@@ -10,15 +10,28 @@ User = get_user_model()
 
 
 def _get_role(user) -> Role:
+    """
+    Returns user role for access rights matrix.
+    SSOT: Uses user.role field directly.
+    """
     if not user or not getattr(user, "is_authenticated", False):
         return "anonymous"
+    
+    # Fallback for Django superuser flag (legacy compatibility)
     if getattr(user, "is_superuser", False):
         return "superuser"
-    if getattr(user, "is_admin", False):
-        return "admin"
-    if getattr(user, "is_staff", False):
-        return "staff"
-    return "user"
+    
+    # SSOT: Use user.role field directly
+    role = getattr(user, 'role', '').lower()
+    
+    # Map user roles to access rights roles
+    if role == 'superadmin':
+        return 'superuser'
+    elif role in ['admin', 'staff', 'editor', 'reader', 'adhoc']:
+        return role
+    
+    # Default fallback
+    return "reader"  # Changed from "user" to match our roles
 
 
 def _get_policy(view_name: str, action: Action) -> Dict[Role, bool]:
@@ -65,4 +78,40 @@ def get_access_matrix_for_user(user, view_names: Dict[str, Dict] | None = None) 
         for action in actions:
             result[name][action] = can_access(name, action, user)
     return result
+
+
+def check_menu_dependencies(user) -> Dict[str, bool]:
+    """
+    Check if user meets dependencies for conditional menus.
+    Uses scoping callbacks to check ownership at different levels.
+    
+    Returns:
+        {
+            "has_companies": bool,
+            "has_factories": bool,
+        }
+    """
+    from sopira_magic.apps.scoping import get_scope_values
+    
+    role = _get_role(user)
+    
+    # Superuser always has everything
+    if role == "superuser":
+        return {
+            "has_companies": True,
+            "has_factories": True,
+        }
+    
+    # Get user's companies (scope level 1)
+    companies = get_scope_values(1, user, 'accessible')
+    has_companies = len(companies) > 0
+    
+    # Get user's factories (scope level 2)
+    factories = get_scope_values(2, user, 'accessible')
+    has_factories = len(factories) > 0
+    
+    return {
+        "has_companies": has_companies,
+        "has_factories": has_factories,
+    }
 

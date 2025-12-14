@@ -29,6 +29,7 @@ import { LoadStateModal } from '@/components/modals/LoadStateModal';
 import { ShareFactoryModal } from '@/components/modals/ShareFactoryModal';
 import { EditRecordModal } from '@/components/modals/EditRecordModal';
 import { AddRecordModal } from '@/components/modals/AddRecordModal';
+import { AddRecordWithSelectModal } from '@/components/modals/AddRecordWithSelectModal';
 import { useScope } from '@/contexts/ScopeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAccessRights } from '@/hooks/useAccessRights';
@@ -701,6 +702,16 @@ export function MyTable<T extends { id: string | number } & Record<string, any>>
     selectedCount,
   } = TI.useRowSelection<T>();
 
+// ============================================
+// VISIBLE SELECTED (VisibleSelected concept)
+// ============================================
+// Only rows that are BOTH selected AND in visible scope
+const visibleSelectedRows = TI.useMemo(() => {
+  return data.filter((row) => selectedRows.has(String(row.id)));
+}, [data, selectedRows]);
+
+const visibleSelectedCount = visibleSelectedRows.length;
+
 const rowSelectionState = TI.useMemo<Record<string, boolean>>(() => {
   const obj: Record<string, boolean> = {};
   selectedRows.forEach((id) => {
@@ -724,7 +735,7 @@ const rowSelectionState = TI.useMemo<Record<string, boolean>>(() => {
     
     // Actions column (if any actions are enabled) - SECOND column (order: 5)
     if ((cfg.actions.edit && allowEdit) || (cfg.actions.delete && allowDelete) || cfg.actions.expand || cfg.actions.inlineShare || cfg.actions.customActions?.length) {
-      const showShare = !!(cfg.actions.inlineShare && (user?.is_admin || user?.is_superuser_role));
+      const showShare = !!(cfg.actions.inlineShare && (user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'superadmin' || user?.is_superuser_role));
       
       const actionsConfig = {
         type: 'actions' as const,
@@ -2125,7 +2136,7 @@ const rowSelectionState = TI.useMemo<Record<string, boolean>>(() => {
           {/* TABLE HEADER */}
           <TI.TableHeader
             title={cfg.tableName}
-            selectedCount={selectedCount}
+            selectedCount={visibleSelectedCount}
             visibleCount={visibleCount}
             totalCount={totalCount}
             pageIndex={table.getState().pagination.pageIndex}
@@ -2184,20 +2195,16 @@ const rowSelectionState = TI.useMemo<Record<string, boolean>>(() => {
                   onReset={cfg.toolbarVisibility.reset ? handleReset : undefined}
                   onSave={cfg.toolbarVisibility.save && cfg.callbacks?.onSave ? () => cfg.callbacks?.onSave?.(data) : undefined}
                   onShare={
-                    cfg.toolbarVisibility.share && selectedCount > 0 && (user?.is_admin || user?.is_superuser_role)
+                    cfg.toolbarVisibility.share && visibleSelectedCount > 0 && (user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'superadmin' || user?.is_superuser_role)
                       ? () => {
-                          // Get selected records from data using selectedRows Set
-                          const selected = data.filter((row) => selectedRows.has(String(row.id)));
-                          setSharingRecords(selected);
+                          setSharingRecords(visibleSelectedRows);
                         }
                       : undefined
                   }
                   onDelete={
-                    cfg.toolbarVisibility.delete && allowDelete && selectedCount > 0
+                    cfg.toolbarVisibility.delete && allowDelete && visibleSelectedCount > 0
                       ? () => {
-                          // Get selected records from data using selectedRows Set
-                          const selected = data.filter((row) => selectedRows.has(String(row.id)));
-                          setDeletingRecords(selected);
+                          setDeletingRecords(visibleSelectedRows);
                         }
                       : undefined
                   }
@@ -2207,8 +2214,8 @@ const rowSelectionState = TI.useMemo<Record<string, boolean>>(() => {
                   showSave={cfg.toolbarVisibility.save}
                   showShare={cfg.toolbarVisibility.share}
                   showDelete={cfg.toolbarVisibility.delete && allowDelete}
-                  shareCount={selectedCount}
-                  deleteCount={selectedCount}
+                  shareCount={visibleSelectedCount}
+                  deleteCount={visibleSelectedCount}
                   customButtons={cfg.customToolbarButtons}
                 />
                 </div>
@@ -2457,22 +2464,56 @@ const rowSelectionState = TI.useMemo<Record<string, boolean>>(() => {
         />
       )}
 
-      {/* ADD RECORD MODAL */}
-      {showAddModal && cfg.toolbarVisibility.add && allowAdd && (
-        <AddRecordModal
-          open={showAddModal}
-          fieldsMatrix={fieldConfigMap}
-          apiEndpoint={cfg.apiEndpoint}
-          singularName={getSingularNameFromEndpoint(cfg.apiEndpoint, cfg.tableName)}
-          onClose={() => setShowAddModal(false)}
-          onSuccess={async (_newRecord) => {
-            setShowAddModal(false);
-            await refetch();
-            TI.toastMessages.recordCreated();
-          }}
-          getCsrfToken={getCsrfToken}
-        />
-      )}
+      {/* ADD RECORD MODAL - Auto-detect which modal to use */}
+      {showAddModal && cfg.toolbarVisibility.add && allowAdd && (() => {
+        // Auto-detection: use AddRecordWithSelectModal if parentHierarchy OR legacy parentField exists
+        const hasParentHierarchy = cfg.parentHierarchy && cfg.parentHierarchy.length > 0;
+        const hasLegacyParent = cfg.parentField && cfg.parentEndpoint;
+        const useSelectModal = hasParentHierarchy || hasLegacyParent || cfg.customAddModal === 'AddRecordWithSelectModal';
+        
+        if (useSelectModal && (hasParentHierarchy || hasLegacyParent)) {
+          return (
+            <AddRecordWithSelectModal
+              open={showAddModal}
+              fieldsMatrix={fieldConfigMap}
+              apiEndpoint={cfg.apiEndpoint}
+              singularName={getSingularNameFromEndpoint(cfg.apiEndpoint, cfg.tableName)}
+              // New hierarchical config (preferred)
+              parentHierarchy={cfg.parentHierarchy}
+              // Legacy single-parent config (backward compatible)
+              parentField={cfg.parentField}
+              parentEndpoint={cfg.parentEndpoint}
+              parentOptions={cfg.parentOptions}
+              parentRequiredMessage={cfg.parentRequiredMessage}
+              parentLabel={cfg.parentLabel}
+              onClose={() => setShowAddModal(false)}
+              onSuccess={async (_newRecord) => {
+                setShowAddModal(false);
+                await refetch();
+                TI.toastMessages.recordCreated();
+              }}
+              getCsrfToken={getCsrfToken}
+            />
+          );
+        }
+        
+        // Standard modal
+        return (
+          <AddRecordModal
+            open={showAddModal}
+            fieldsMatrix={fieldConfigMap}
+            apiEndpoint={cfg.apiEndpoint}
+            singularName={getSingularNameFromEndpoint(cfg.apiEndpoint, cfg.tableName)}
+            onClose={() => setShowAddModal(false)}
+            onSuccess={async (_newRecord) => {
+              setShowAddModal(false);
+              await refetch();
+              TI.toastMessages.recordCreated();
+            }}
+            getCsrfToken={getCsrfToken}
+          />
+        );
+      })()}
 
       {/* EDIT RECORD MODAL */}
       {editingRecord && cfg.actions.edit && allowEdit && (
@@ -2664,7 +2705,12 @@ const rowSelectionState = TI.useMemo<Record<string, boolean>>(() => {
       {cfg.debug && (
         <div className="fixed bottom-4 right-4 bg-background border border-border rounded p-4 shadow-lg max-w-md text-xs">
           <h4 className="font-semibold mb-2">Debug Info</h4>
-          <pre>{JSON.stringify({ data: data.length, visibleCount, selectedCount }, null, 2)}</pre>
+          <pre>{JSON.stringify({ 
+            data: data.length, 
+            visibleCount, 
+            selectedCount,           // Total selected (all, persist across filters)
+            visibleSelectedCount     // Effective action count (selected AND visible)
+          }, null, 2)}</pre>
         </div>
       )}
     </div>

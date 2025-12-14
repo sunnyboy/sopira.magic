@@ -39,10 +39,15 @@ export function matrixToFieldConfigs<T extends Record<string, any>>(
     maxSize: item.maxSize,
     order: item.order,
     editable: item.editableInline ?? true,
+    editableInline: item.editableInline ?? true,
     sortable: item.sortable ?? true,  // Use from matrix, don't force
     filterable: item.isInFilterPanel ?? false,
     placeholder: item.placeholder,
     multiline: item.multiline,
+    // Edit modal properties
+    editableInEditModal: item.editableInEditModal,
+    editableInAddModal: item.editableInAddModal,
+    required: item.required,
     // Type-specific properties
     options: item.options,
     min: item.min,

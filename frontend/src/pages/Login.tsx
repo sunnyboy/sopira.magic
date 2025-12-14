@@ -181,7 +181,7 @@ const Login: React.FC = () => {
             <Link to="/" className="block">
               <Button
                 type="button"
-                variant="outline"
+                variant="ghost"
                 className="w-full"
                 disabled={isLoading}
               >
@@ -197,10 +197,6 @@ const Login: React.FC = () => {
       <SignUpModal
         open={showSignUpModal}
         onClose={() => setShowSignUpModal(false)}
-        onSuccess={() => {
-          setShowSignUpModal(false);
-          navigate(from, { replace: true });
-        }}
       />
 
       {/* Forgot Password Modal */}
@@ -216,10 +212,9 @@ const Login: React.FC = () => {
 interface SignUpModalProps {
   open: boolean;
   onClose: () => void;
-  onSuccess: () => void;
 }
 
-const SignUpModal: React.FC<SignUpModalProps> = ({ open, onClose, onSuccess }) => {
+const SignUpModal: React.FC<SignUpModalProps> = ({ open, onClose }) => {
   const [formData, setFormData] = useState({
     username: '',
     password: '',
@@ -234,6 +229,7 @@ const SignUpModal: React.FC<SignUpModalProps> = ({ open, onClose, onSuccess }) =
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const { signup } = useAuth();
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -271,7 +267,12 @@ const SignUpModal: React.FC<SignUpModalProps> = ({ open, onClose, onSuccess }) =
       );
 
       if (result.success) {
-        onSuccess();
+        onClose();
+        // Redirect to companies page for new user to create first company
+        navigate('/companies', { 
+          replace: true,
+          state: { isNewUser: true } // Flag for empty state message
+        });
       } else {
         setError(result.error || 'Registration failed');
       }

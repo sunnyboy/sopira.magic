@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sopira Magic - New User Registration</title>
+    <style>
+        /* Reset & Base */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #1f2937;
+            background: #f9fafb;
+            padding: 20px;
+        }
+        
+        /* Container */
+        .email-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        
+        /* Header - Green gradient for signup */
+        .header {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: #ffffff;
+            padding: 40px 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+        .header p {
+            font-size: 16px;
+            opacity: 0.95;
+            font-weight: 400;
+        }
+        
+        /* Content */
+        .content {
+            padding: 40px 30px;
+            background: #ffffff;
+        }
+        .content h2 {
+            font-size: 22px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 16px;
+        }
+        .content > p {
+            color: #4b5563;
+            margin-bottom: 24px;
+            font-size: 15px;
+        }
+        
+        /* Info Card */
+        .info-card {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 24px;
+            margin: 24px 0;
+        }
+        
+        /* Info Row */
+        .info-row {
+            display: flex;
+            padding: 12px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+        }
+        .info-row:first-child {
+            padding-top: 0;
+        }
+        .info-label {
+            min-width: 140px;
+            font-weight: 600;
+            color: #374151;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+        }
+        .info-value {
+            flex: 1;
+            color: #1f2937;
+            font-size: 14px;
+            word-break: break-word;
+        }
+        
+        /* Badge */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 13px;
+            font-weight: 600;
+            line-height: 1.5;
+        }
+        .badge-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .badge-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .badge-info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        /* Warning Box - Yellow for action required */
+        .warning-box {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 16px;
+            border-radius: 6px;
+            margin: 24px 0;
+            display: flex;
+            align-items: start;
+        }
+        .warning-icon {
+            font-size: 20px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+        .warning-content {
+            flex: 1;
+        }
+        .warning-title {
+            font-weight: 700;
+            color: #92400e;
+            margin-bottom: 4px;
+            font-size: 14px;
+        }
+        .warning-text {
+            color: #78350f;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        /* Footer Note */
+        .footer-note {
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+            border-radius: 6px;
+            padding: 16px;
+            margin-top: 30px;
+            display: flex;
+            align-items: start;
+        }
+        .footer-note-icon {
+            font-size: 18px;
+            margin-right: 10px;
+            flex-shrink: 0;
+        }
+        .footer-note-text {
+            color: #065f46;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        
+        /* Footer */
+        .footer {
+            background: #f9fafb;
+            padding: 24px 30px;
+            text-align: center;
+            border-top: 1px solid #e5e7eb;
+        }
+        .footer p {
+            color: #6b7280;
+            font-size: 13px;
+            margin: 4px 0;
+        }
+        .footer-brand {
+            font-weight: 600;
+            color: #374151;
+        }
+        
+        /* Responsive */
+        @media only screen and (max-width: 600px) {
+            body { padding: 10px; }
+            .header { padding: 30px 20px; }
+            .content { padding: 30px 20px; }
+            .info-card { padding: 20px; }
+            .info-row { flex-direction: column; }
+            .info-label { margin-bottom: 4px; min-width: auto; }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🆕 Nová Registrácia</h1>
+            <p>Nový užívateľ sa zaregistroval do Sopira Magic</p>
+        </div>
+        
+        <!-- Content -->
+        <div class="content">
+            <h2>Nový používateľský účet vytvorený</h2>
+            <p>Bol vytvorený nový užívateľský účet v Sopira Magic systéme. Prezrite si detaily novej registrácie:</p>
+            
+            <!-- Info Card -->
+            <div class="info-card">
+                <div class="info-row">
+                    <div class="info-label">👤 Užívateľské meno:</div>
+                    <div class="info-value"><strong>{{ username }}</strong></div>
+                </div>
+                
+                <div class="info-row">
+                    <div class="info-label">👤 Celé meno:</div>
+                    <div class="info-value">{{ first_name }} {{ last_name }}</div>
+                </div>
+                
+                <div class="info-row">
+                    <div class="info-label">📧 Email:</div>
+                    <div class="info-value">{{ email }}</div>
+                </div>
+                
+                <div class="info-row">
+                    <div class="info-label">🔧 Pridelená rola:</div>
+                    <div class="info-value">
+                        {% if role == "SUPERADMIN" %}
+                            <span class="badge badge-info">🔵 Superadmin</span>
+                        {% elif role == "ADMIN" %}
+                            <span class="badge badge-warning">🟡 Admin</span>
+                        {% elif role == "STAFF" %}
+                            <span class="badge badge-warning">🟡 Staff</span>
+                        {% else %}
+                            <span class="badge badge-success">🟢 {{ role }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="info-row">
+                    <div class="info-label">🌐 IP adresa:</div>
+                    <div class="info-value">{{ ip_address }}</div>
+                </div>
+                
+                <div class="info-row">
+                    <div class="info-label">🖥️ User Agent:</div>
+                    <div class="info-value">{{ user_agent|default:"N/A" }}</div>
+                </div>
+            </div>
+            
+            <!-- Action Required Warning -->
+            <div class="warning-box">
+                <div class="warning-icon">⚠️</div>
+                <div class="warning-content">
+                    <div class="warning-title">Akcia potrebná</div>
+                    <div class="warning-text">
+                        Nový používateľ bol zaregistrovaný, ale nemá priradené žiadne spoločnosti (companies). 
+                        Bude vidieť prázdne tabuľky, kým si nevytvorí vlastnú spoločnosť alebo kým mu ju nepriradíte.
+                        <br><br>
+                        <strong>Odporúčané kroky:</strong>
+                        <ul style="margin: 8px 0 0 20px; padding: 0;">
+                            <li>Používateľ môže vytvoriť vlastnú spoločnosť cez UI</li>
+                            <li>Alebo môžete priradiť používateľa k existujúcej spoločnosti</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Footer Note -->
+            <div class="footer-note">
+                <div class="footer-note-icon">💡</div>
+                <div class="footer-note-text">
+                    <strong>Bezpečnosť:</strong> Tento email je automaticky generovaný pri každej novej registrácii. 
+                    Ak neočakávate nové registrácie, skontrolujte bezpečnostné nastavenia systému.
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <p class="footer-brand">Sopira Magic Admin Notification • Automaticky generovaný email</p>
+            <p>Správca systému: sopira@me.com</p>
+        </div>
+    </div>
+</body>
+</html>
+
+
+
+

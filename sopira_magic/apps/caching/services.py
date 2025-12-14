@@ -141,13 +141,13 @@ class FKCacheService:
         if base_filters:
             qs = qs.filter(**base_filters)
         
-        # Apply scoping if user provided and factory_scoped is True
-        if user and config.get('factory_scoped'):
-            # TODO: Integrate with ScopingEngine for proper scoping
-            # For now, just filter by created_by if model has that field
-            if hasattr(model, 'created_by'):
-                # This is simplified - full implementation should use ScopingEngine
-                pass
+        # Apply scoping via ScopingEngine (ak user poskytnutý)
+        if user:
+            try:
+                from sopira_magic.apps.scoping.engine import ScopingEngine
+                qs = ScopingEngine.apply(qs, user, view_name, config)
+            except Exception as exc:
+                logger.warning("ScopingEngine failed for %s: %s", view_name, exc)
         
         # Build options list
         options = []

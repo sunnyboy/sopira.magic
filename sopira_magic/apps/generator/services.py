@@ -80,6 +80,52 @@ from sopira_magic.apps.relation.services import RelationService
 from .progress import ProgressTracker
 from .progress_state import is_cancel_requested
 
+import logging
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# POST-CREATE HOOKS
+# =============================================================================
+
+def auto_assign_user_to_company(obj, context, config):
+    """
+    Auto-assign company to user via UserCompany M2M.
+    Used in hierarchical generation (count_per_parent).
+    
+    Args:
+        obj: Created Company object
+        context: Dict with 'parent' (User object)
+        config: Generator config for company
+    """
+    from sopira_magic.apps.m_company.models import UserCompany
+    from sopira_magic.apps.m_user.models import User
+    
+    # Get parent user from context
+    parent = context.get('parent')
+    if not parent:
+        # Fallback: assign to first active user
+        parent = User.objects.filter(is_active=True).first()
+    
+    if parent:
+        UserCompany.objects.get_or_create(
+            user=parent,
+            company=obj,
+            defaults={'role': 'owner'}
+        )
+        logger.debug(f"[GENERATOR] Created UserCompany: {parent.username} → {obj.code}")
+
+
+# Hook registry
+POST_CREATE_HOOKS = {
+    'auto_assign_user_to_company': auto_assign_user_to_company,
+}
+
+
+def get_post_create_hook(hook_name: str):
+    """Get post-create hook function by name."""
+    return POST_CREATE_HOOKS.get(hook_name)
+
 
 class GeneratorService:
     """Universal service for generating data for any model based on config."""
@@ -241,6 +287,17 @@ class GeneratorService:
                     GeneratorService._create_relation(
                         obj, relation_field, relation_config, model_key, user
                     )
+                
+                # Execute post_create_hook if defined
+                hook_name = config.get('post_create_hook')
+                if hook_name:
+                    hook_fn = get_post_create_hook(hook_name)
+                    if hook_fn:
+                        try:
+                            # For standard mode, no parent available in context
+                            hook_fn(obj, context={'parent': None}, config=config)
+                        except Exception as e:
+                            logger.warning(f"[GENERATOR] post_create_hook '{hook_name}' failed: {e}")
                 
             except Exception as e:
                 # Skip objects that can't be created
@@ -460,6 +517,16 @@ class GeneratorService:
                                     )
                             except Exception:
                                 pass
+                    
+                    # Execute post_create_hook if defined
+                    hook_name = config.get('post_create_hook')
+                    if hook_name:
+                        hook_fn = get_post_create_hook(hook_name)
+                        if hook_fn:
+                            try:
+                                hook_fn(obj, context={'parent': source_obj}, config=config)
+                            except Exception as e:
+                                logger.warning(f"[GENERATOR] post_create_hook '{hook_name}' failed: {e}")
                     
                     # Create relation between source and target
                     # Determine source and target based on relation config

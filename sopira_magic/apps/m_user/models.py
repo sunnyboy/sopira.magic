@@ -62,6 +62,25 @@ class User(AbstractUser):
     date_of_birth = models.DateField(null=True, blank=True)
     photo_url = models.URLField(blank=True, default="")
     
+    def save(self, *args, **kwargs):
+        """
+        Override save to protect SA user (sopira) from deactivation.
+        
+        This is a fallback protection in case someone bypasses the API
+        (e.g., Django admin, shell, direct SQL).
+        """
+        # Protection: SA user 'sopira' must always remain active
+        if self.username == 'sopira' and not self.is_active:
+            self.is_active = True
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"[SA Protection - Model] Auto-reverted 'sopira' is_active to True. "
+                f"SA user cannot be deactivated."
+            )
+        
+        super().save(*args, **kwargs)
+    
     class Meta:
         verbose_name = _("User")
         verbose_name_plural = _("Users")

@@ -39,6 +39,25 @@ export const pitTableConfig: MyTableConfig<Pit> = {
     visible: false, // footer rendruje wrapper
   },
 
+  // ============================================
+  // PARENT ENTITY SELECTION (Hierarchical 2-level)
+  // ============================================
+  parentHierarchy: [
+    {
+      field: 'company',
+      endpoint: 'companies',
+      label: 'Company',
+      requiredMessage: 'Create company first'
+    },
+    {
+      field: 'factory',
+      endpoint: 'factories',
+      label: 'Factory',
+      parentField: 'company',
+      requiredMessage: 'Create factory first'
+    }
+  ],
+
   fieldsMatrix: {
     uuid: {
       type: 'text',

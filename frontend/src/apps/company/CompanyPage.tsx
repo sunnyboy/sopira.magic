@@ -12,17 +12,22 @@ import { useAuth } from '@/contexts/AuthContext';
 import { PageHeader } from '@/components/PageHeader';
 import { PageFooter } from '@/components/PageFooter';
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { MultiSelect } from '@/components/ui_custom/multi-select';
 import { loadFKOptionsFromCache } from '@/services/fkCacheService';
 import { getMutatingHeaders } from '@/security/csrf';
 import { companyTableConfigBase, type Company } from './companyTableConfig';
+import { Building2 } from 'lucide-react';
 
 export function CompanyPage() {
   const { user, isAuthenticated } = useAuth();
+  const location = useLocation();
+  const isNewUser = location.state?.isNewUser;
+  
   const isSuperUser = Boolean(
     user?.is_superuser ||
     user?.is_superuser_role ||
-    user?.is_admin
+    user?.role?.toLowerCase() === 'superadmin'
   );
 
   const [userOptions, setUserOptions] = useState<{ value: string; label: string }[]>([]);
@@ -69,6 +74,15 @@ export function CompanyPage() {
 
   const config: MyTableConfig<Company> = useMemo(() => ({
     ...companyTableConfigBase,
+    emptyState: {
+      icon: <Building2 size={64} className="text-muted-foreground/50" />,
+      title: isNewUser 
+        ? "Welcome! Create your first company" 
+        : "No companies yet",
+      text: isNewUser
+        ? "Create your first company to start using the platform. A company is the top-level organizational unit that contains factories, machines, and other resources."
+        : "You don't have any companies yet. Click +Add above to create your first company.",
+    },
     customCellRenderers: {
       users: (row: Company) => {
         const companyId = row?.id ? String(row.id) : null;
@@ -151,23 +165,7 @@ export function CompanyPage() {
         );
       },
     },
-  }), [usersByCompany, userOptions, factoriesByCompany, factoryOptions]);
-
-  // Guard on FE: show message if not SA
-  if (!isAuthenticated || !isSuperUser) {
-    return (
-      <div className="max-w-[1400px] mx-auto px-4 py-6 space-y-4">
-        <PageHeader showLogo={true} showMenu={true} />
-        <div className="max-w-[900px] mx-auto bg-card border border-border rounded-xl p-8 shadow-sm">
-          <h2 className="text-xl font-semibold mb-2">Access restricted</h2>
-          <p className="text-sm text-muted-foreground">
-            Táto sekcia je dostupná iba pre superuserov (SA).
-          </p>
-        </div>
-        <PageFooter />
-      </div>
-    );
-  }
+  }), [usersByCompany, userOptions, factoriesByCompany, factoryOptions, isNewUser]);
 
   return (
     <div className="max-w-[1400px] mx-auto px-4 py-6 space-y-4">

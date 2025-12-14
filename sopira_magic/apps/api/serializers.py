@@ -7,12 +7,9 @@
 """
 API Serializers - DRF Serializers for API Gateway.
 
-This module contains serializers used by the config-driven API layer.
-Serializers here are still domain-specific, but they are wired through
-configuration (VIEWS_MATRIX) instead of being hard-coded into viewsets.
+This module contains the universal ConfigDriven serializer factory.
 
 Components:
-- UserListSerializer: read-only representation of User rows for admin tables.
 - MySerializer: Config-driven serializer factory that auto-generates serializers
   from VIEWS_MATRIX configuration with computed fields and FK display labels.
 
@@ -76,19 +73,48 @@ def get_fk_display_label(obj: Any, template: str) -> Optional[str]:
 # SERIALIZERS
 # =============================================================================
 
-class UserListSerializer(serializers.ModelSerializer):
-    """Read-write serializer pre users s M2M companies."""
-
-    companies = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Company.objects.all(), required=False
-    )
-
-    class Meta:
-        model = User
-        fields = "__all__"
-
+# -------------------------------------------------------------------------
+# [REMOVED] Hardcoded UserListSerializer - now using MySerializer (ConfigDriven)
+# -------------------------------------------------------------------------
+# UserListSerializer was removed to eliminate:
+# 1. Hardcoded serializer (against ConfigDriven&SSOT principle)
+# 2. N+1 queries on companies M2M field (PrimaryKeyRelatedField validation)
+#
+# Users now use MySerializer.create_serializer("users")
+# -------------------------------------------------------------------------
 
 
+# =============================================================================
+# GENERIC RELATION TAGS FIELD
+# =============================================================================
+
+class GenericRelationTagsField(serializers.ListField):
+    """
+    Custom writable field for GenericRelation to TaggedItem.
+    
+    Read: Returns list of tag names
+    Write: Accepts list of tag names
+    
+    ConfigDriven: Works for any model with GenericRelation to TaggedItem.
+    """
+    child = serializers.CharField()
+    
+    def to_representation(self, value):
+        """Read: return list of tag names from GenericRelation."""
+        if hasattr(value, 'select_related'):
+            return list(value.select_related("tag").values_list("tag__name", flat=True))
+        return []
+    
+    def to_internal_value(self, data):
+        """Write: validate list of tag names."""
+        if not isinstance(data, list):
+            raise serializers.ValidationError("Tags must be a list")
+        return [str(tag).strip() for tag in data if tag]
+
+
+# =============================================================================
+# MY SERIALIZER - UNIVERSAL CONFIG-DRIVEN SERIALIZER FACTORY
+# =============================================================================
 
 class MySerializer(serializers.ModelSerializer):
     """
@@ -172,14 +198,6 @@ class MySerializer(serializers.ModelSerializer):
                 else (obj.name or obj.code or str(obj))
             )
         
-        # Add tags field if model has tags relation
-        if hasattr(model, 'tags'):
-            serializer_attrs['tags'] = serializers.SerializerMethodField()
-            serializer_attrs['get_tags'] = lambda self, obj: (
-                list(obj.tags.select_related("tag").values_list("tag__name", flat=True))
-                if hasattr(obj, 'tags') else []
-            )
-        
         # Add FK display labels based on fk_fields config
         fk_fields = config.get('fk_fields', {})
         if fk_fields:
@@ -195,6 +213,112 @@ class MySerializer(serializers.ModelSerializer):
                     serializer_attrs[f'get_{display_field_name}'] = cls._create_fk_display_getter(
                         fk_field_name, fk_template
                     )
+        
+        # Add M2M and reverse FK fields (explicit serialization)
+        # DRF doesn't auto-serialize M2M with through model, so we add them explicitly
+        cls._add_m2m_and_reverse_fk_fields(model, serializer_attrs, view_name)
+        
+        # If GenericRelation fields detected, add custom update/create methods
+        generic_relation_fields = serializer_attrs.pop('_generic_relation_fields', [])
+        
+        # Always add custom update method (for hooks + tags)
+        # This replaces default DRF update to support before_update hooks and GenericRelation
+        def update(self, instance, validated_data):
+            """
+            Custom update to handle:
+            1. before_update hooks from config (e.g., SA protection)
+            2. GenericRelation (tags) fields
+            """
+            from sopira_magic.apps.m_tag.models import Tag, TaggedItem
+            from django.contrib.contenttypes.models import ContentType
+            from sopira_magic.apps.api.view_configs import VIEWS_MATRIX
+            
+            # Initialize meta collections (ConfigDriven)
+            self._meta_warnings = []
+            self._meta_info = []
+            self._meta_errors = []
+            
+            # 1. Call before_update hook if defined in config
+            before_update_hook = config.get('before_update')
+            if before_update_hook:
+                request = self.context.get('request')
+                result = before_update_hook(instance, validated_data, request)
+                
+                # Hook can return tuple (validated_data, warnings_list) or just validated_data
+                if isinstance(result, tuple):
+                    validated_data, warnings = result
+                    if warnings and isinstance(warnings, list):
+                        self._meta_warnings.extend(warnings)
+                else:
+                    validated_data = result
+            
+            # 2. Extract GenericRelation data from initial_data
+            tags_data = {}
+            for field_name in generic_relation_fields:
+                if field_name in self.initial_data:
+                    tags_data[field_name] = self.initial_data[field_name]
+                    validated_data.pop(field_name, None)
+            
+            # 3. Standard update for other fields
+            for attr, value in validated_data.items():
+                setattr(instance, attr, value)
+            instance.save()
+            
+            # 4. Update GenericRelation (tags)
+            for field_name, tag_names in tags_data.items():
+                # Clear existing
+                getattr(instance, field_name).all().delete()
+                
+                # Create new
+                if tag_names:
+                    content_type = ContentType.objects.get_for_model(instance)
+                    for tag_name in tag_names:
+                        if tag_name:
+                            tag, _ = Tag.objects.get_or_create(name=tag_name.strip())
+                            TaggedItem.objects.create(
+                                content_type=content_type,
+                                object_id=instance.pk,
+                                tag=tag
+                            )
+            
+            return instance
+        
+        serializer_attrs['update'] = update
+        
+        # Add create method if GenericRelation fields exist
+        if generic_relation_fields:
+            def create(self, validated_data):
+                """Custom create to handle GenericRelation (tags) fields."""
+                from sopira_magic.apps.m_tag.models import Tag, TaggedItem
+                from django.contrib.contenttypes.models import ContentType
+                
+                # Extract tags data
+                tags_data = {}
+                for field_name in generic_relation_fields:
+                    if field_name in self.initial_data:
+                        tags_data[field_name] = self.initial_data[field_name]
+                        validated_data.pop(field_name, None)
+                
+                # Create instance
+                instance = self.Meta.model(**validated_data)
+                instance.save()
+                
+                # Add tags
+                for field_name, tag_names in tags_data.items():
+                    if tag_names:
+                        content_type = ContentType.objects.get_for_model(instance)
+                        for tag_name in tag_names:
+                            if tag_name:
+                                tag, _ = Tag.objects.get_or_create(name=tag_name.strip())
+                                TaggedItem.objects.create(
+                                    content_type=content_type,
+                                    object_id=instance.pk,
+                                    tag=tag
+                                )
+                
+                return instance
+            
+            serializer_attrs['create'] = create
         
         # Create serializer class
         serializer_class = type(
@@ -230,50 +354,96 @@ class MySerializer(serializers.ModelSerializer):
         return getter
     
     @classmethod
+    def _add_m2m_and_reverse_fk_fields(cls, model, serializer_attrs: Dict[str, Any], view_name: str):
+        """
+        Add explicit M2M and reverse FK field serialization.
+        
+        DRF doesn't auto-serialize M2M with through model or reverse FKs,
+        so we detect and add them explicitly using PrimaryKeyRelatedField.
+        
+        Args:
+            model: Django model class
+            serializer_attrs: Dict to add serializer attributes to
+            view_name: View name for special case handling
+        """
+        # Get model app_label and name for matching
+        model_app_label = model._meta.app_label
+        model_name = model._meta.object_name
+        
+        # Detect M2M fields (including those with through model)
+        for field in model._meta.get_fields():
+            if field.many_to_many and not field.auto_created:
+                # M2M field (e.g., Company.users)
+                field_name = field.name
+                logger.debug(f"[MySerializer] Adding M2M field '{field_name}' for {model_name}")
+                serializer_attrs[field_name] = serializers.PrimaryKeyRelatedField(
+                    many=True,
+                    queryset=field.related_model.objects.all(),
+                    required=False
+                )
+        
+        # Detect reverse M2M fields (e.g., User.companies via related_name)
+        for related_object in model._meta.related_objects:
+            if related_object.many_to_many:
+                # Reverse M2M (e.g., User → companies via UserCompany)
+                accessor_name = related_object.get_accessor_name()
+                logger.debug(f"[MySerializer] Adding reverse M2M field '{accessor_name}' for {model_name}")
+                serializer_attrs[accessor_name] = serializers.PrimaryKeyRelatedField(
+                    many=True,
+                    queryset=related_object.related_model.objects.all(),
+                    required=False
+                )
+        
+        # Detect reverse FK fields (e.g., Company → factories)
+        for related_object in model._meta.related_objects:
+            if related_object.one_to_many and not related_object.field.many_to_many:
+                # Reverse FK (e.g., Company → Factory via Factory.company FK)
+                accessor_name = related_object.get_accessor_name()
+                logger.debug(f"[MySerializer] Adding reverse FK field '{accessor_name}' for {model_name}")
+                # Don't specify source if it's the same as accessor_name (DRF assertion)
+                serializer_attrs[accessor_name] = serializers.PrimaryKeyRelatedField(
+                    many=True,
+                    read_only=True  # Reverse FK is read-only, edit via related model
+                )
+        
+        # Detect GenericRelation fields (e.g., tags)
+        # ConfigDriven: automatically detects GenericRelation to TaggedItem
+        from django.contrib.contenttypes.fields import GenericRelation
+        
+        for field in model._meta.get_fields():
+            if isinstance(field, GenericRelation):
+                field_name = field.name
+                related_model = field.related_model
+                
+                # Check if it's pointing to TaggedItem
+                if related_model.__name__ == 'TaggedItem':
+                    logger.debug(f"[MySerializer] Adding GenericRelation tags field '{field_name}' for {model_name}")
+                    
+                    # Add writable field
+                    serializer_attrs[field_name] = GenericRelationTagsField(
+                        required=False,
+                        allow_empty=True,
+                        help_text=f"List of tag names for {field_name}"
+                    )
+                    
+                    # Mark for custom update/create logic
+                    if '_generic_relation_fields' not in serializer_attrs:
+                        serializer_attrs['_generic_relation_fields'] = []
+                    serializer_attrs['_generic_relation_fields'].append(field_name)
+    
+    @classmethod
     def clear_cache(cls):
         """Clear the serializer cache (useful for testing)."""
         cls._serializer_cache.clear()
 
 
 # -------------------------------------------------------------------------
-# Company serializer with M2M users (through UserCompany)
+# [REMOVED] Hardcoded CompanySerializer - now using MySerializer (ConfigDriven)
 # -------------------------------------------------------------------------
-from sopira_magic.apps.m_company.models import Company
-
-
-class CompanySerializer(serializers.ModelSerializer):
-    users = serializers.PrimaryKeyRelatedField(
-        many=True,
-        queryset=User.objects.all(),
-        required=False,
-    )
-    factories = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Company
-        fields = "__all__"
-
-    def get_factories(self, obj):
-        return list(
-            Factory.objects.filter(company=obj).values_list("id", flat=True)
-        )
-
-    def update(self, instance, validated_data):
-        factories_ids = self.initial_data.get("factories", None)
-        # Remove factories from validated_data to avoid unknown field
-        if "factories" in validated_data:
-            validated_data.pop("factories")
-
-        instance = super().update(instance, validated_data)
-
-        if factories_ids is not None:
-            # Normalize IDs as strings
-            ids = [str(x) for x in factories_ids if x]
-            # Assign selected factories to this company
-            Factory.objects.filter(id__in=ids).update(company=instance)
-            # Unassign factories previously linked but now deselected
-            Factory.objects.filter(company=instance).exclude(id__in=ids).update(
-                company=None
-            )
-
-        return instance
+# CompanySerializer was removed to eliminate:
+# 1. Hardcoded serializer (against ConfigDriven&SSOT principle)
+# 2. N+1 queries on users M2M field (PrimaryKeyRelatedField validation)
+# 3. Unnecessary factories field causing N+1 on Factory table
+#
+# Companies now use MySerializer.create_serializer("companies")
+# -------------------------------------------------------------------------

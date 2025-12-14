@@ -79,7 +79,7 @@ export {
   buildTextContainsParams,
   buildTagsParams,
 } from "@/utils/tableHelpers";
-export { toastMessages, toasts } from "@/utils/toastMessages";
+export { toastMessages } from "@/utils/toastMessages";
 
 // UI Components
 export { Button } from "@/components/ui_custom/button";

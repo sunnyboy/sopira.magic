@@ -1,107 +1,78 @@
 #..............................................................
 #   apps/scoping/registry.py
-#   Abstraktný callback registry pre získanie scoping dát
+#   Callback Registry for Scope Resolution
 #..............................................................
 
 """
-Abstraktný callback registry pre získanie scoping dát bez závislostí na konkrétnych modeloch.
-Host app poskytne implementáciu cez register_scope_provider() a register_role_provider().
+Registry for scope resolution callbacks.
 
-Thread-safe: Všetky operácie sú chránené threading.Lock pre bezpečný prístup
-pri súbežných požiadavkách v produkčnom prostredí.
+Core/apps.py registers two callbacks:
+1. role_provider: User → abstract scoping role
+2. scope_resolver: (level, user, type) → List[scope IDs]
+
+This keeps scoping module independent from specific models.
 """
 
-import threading
-from typing import List, Optional, Callable, Literal, Any
+from typing import List, Callable, Optional
 
-ScopeType = Literal['selected', 'accessible']
+# Global callback storage
+_role_provider: Optional[Callable] = None
+_scope_resolver: Optional[Callable] = None
 
-# Thread-safe lock pre registry operácie
-_registry_lock = threading.Lock()
 
-# Abstraktná callback funkcia (None ak nie je registrovaná)
-# scope_owner je úplne abstraktný objekt - môže to byť User, Company, alebo čokoľvek
-_scope_provider: Optional[Callable[[int, Any, ScopeType, Optional[object]], List[str]]] = None
-_role_provider: Optional[Callable[[Any], str]] = None
-
-def register_scope_provider(callback: Callable[[int, Any, ScopeType, Optional[object]], List[str]]):
+def register_role_provider(callback: Callable[[object], str]) -> None:
     """
-    Registruje abstraktnú callback funkciu pre získanie scope hodnôt.
-    
-    Thread-safe: Operácia je chránená lockom pre bezpečný prístup pri súbežných požiadavkách.
+    Register callback that maps user to abstract scoping role.
     
     Args:
-        callback: Funkcia (scope_level, scope_owner, scope_type, request) -> List[str]
-    """
-    global _scope_provider
-    with _registry_lock:
-        _scope_provider = callback
-
-def register_role_provider(callback: Callable[[Any], str]):
-    """
-    Registruje callback funkciu pre získanie role scope_owner.
-    
-    Thread-safe: Operácia je chránená lockom pre bezpečný prístup pri súbežných požiadavkách.
-    
-    Args:
-        callback: Funkcia (scope_owner) -> str
+        callback: Function(user) → str (role: 'superuser', 'admin', 'staff', ...)
     """
     global _role_provider
-    with _registry_lock:
-        _role_provider = callback
+    _role_provider = callback
 
-def get_scope_values(scope_level: int, scope_owner: Any, scope_type: ScopeType, request=None) -> List[str]:
+
+def register_scope_resolver(callback: Callable[[int, object, str], List[str]]) -> None:
     """
-    Vráti zoznam hodnôt pre daný scope_level a scope_type.
-    
-    Thread-safe: Čítanie je chránené lockom pre bezpečný prístup pri súbežných požiadavkách.
+    Register callback that resolves scope values for a given level.
     
     Args:
-        scope_level: Abstraktná úroveň scope (0, 1, 2...) - mapuje sa na field z ownership_hierarchy
-        scope_owner: Abstraktný objekt reprezentujúci vlastníka scope (môže to byť User, Company, alebo čokoľvek)
-        scope_type: 'selected' alebo 'accessible'
-        request: Optional Django request object pre caching
-        
-    Returns:
-        List[str] - zoznam hodnôt (UUIDs/IDs) pre daný scope_level a scope_type
+        callback: Function(level, user, scope_type) → List[str] (scope IDs)
     """
-    with _registry_lock:
-        provider = _scope_provider
-    
-    if provider:
-        return provider(scope_level, scope_owner, scope_type, request)
-    # Fallback: prázdny zoznam ak nie je registrovaný
-    return []
+    global _scope_resolver
+    _scope_resolver = callback
 
-def get_scope_owner_role(scope_owner: Any) -> str:
+
+def get_role(user: object) -> str:
     """
-    Vráti role scope_owner.
-    
-    Thread-safe: Čítanie je chránené lockom pre bezpečný prístup pri súbežných požiadavkách.
+    Get abstract scoping role for user.
     
     Args:
-        scope_owner: Abstraktný objekt reprezentujúci vlastníka scope
+        user: User object
         
     Returns:
-        str - role (definovaná v config, nie hardcoded)
+        Role string (e.g., 'superuser', 'admin', 'staff', 'reader')
     """
-    with _registry_lock:
-        provider = _role_provider
-    
-    if provider:
-        return provider(scope_owner)
-    # Fallback: 'reader' ak nie je registrovaný
-    return 'reader'
+    if _role_provider:
+        return _role_provider(user)
+    return "reader"  # Safe default
 
-def is_registry_configured() -> bool:
+
+def get_scope_values(level: int, user: object, scope_type: str) -> List[str]:
     """
-    Kontroluje, či sú registry callbacks nakonfigurované.
+    Get scope values (IDs) for a given level and user.
     
-    Thread-safe: Čítanie je chránené lockom.
-    
+    Args:
+        level: Scope level (0=user, 1=company, 2=factory, ...)
+        user: User object
+        scope_type: 'accessible' or 'selected'
+        
     Returns:
-        bool - True ak sú oba callbacks registrované, False inak
+        List of scope IDs (as strings)
     """
-    with _registry_lock:
-        return _scope_provider is not None and _role_provider is not None
+    if _scope_resolver:
+        return _scope_resolver(level, user, scope_type)
+    return []  # Safe default - empty scope
+
+
+
 
